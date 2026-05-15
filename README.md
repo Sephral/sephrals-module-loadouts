@@ -2,6 +2,12 @@
 
 Sephral's Module Loadouts is a Foundry VTT utility module for saving, comparing, applying, exporting, and importing module activation profiles for a single world or for your wider installation.
 
+## Demo
+
+![SCBR demo](media/demo.gif)
+
+If the embedded preview is not available in your GitHub view, please check the media folder.
+
 ## Current Features
 
 - Save the current active module configuration as a named profile
