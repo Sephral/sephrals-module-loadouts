@@ -547,7 +547,12 @@ function exportProfiles() {
 
 async function importProfilesFromFile(file) {
   const text = await foundry.utils.readTextFromFile(file);
-  const data = JSON.parse(text);
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (_error) {
+    throw new Error(localize("SML.Import.Invalid"));
+  }
   const importedProfiles = normalizeProfilesStore(data, PROFILE_SCOPES.GLOBAL).profiles;
   if (!importedProfiles.length) throw new Error(localize("SML.Import.Invalid"));
 
@@ -853,3 +858,54 @@ class SMLLoadoutsManager extends FormApplication {
 
   async _updateObject() {}
 }
+
+export const __test__ = {
+  MODULE_ID,
+  WORLD_PROFILES_SETTING,
+  GLOBAL_PROFILES_SETTING,
+  UI_THEME_SETTING,
+  STORAGE_VERSION,
+  HOTKEY_PRECEDENCE,
+  PROFILE_SCOPES,
+  UI_THEMES,
+  defaultStore,
+  localize,
+  getRegisteredSettingValue,
+  normalizeTheme,
+  getThemePreference,
+  applyManagerTheme,
+  injectModuleManagementLauncher,
+  openManager,
+  canManageModules,
+  getModuleConfigurationSettingKey,
+  getCurrentModuleConfiguration,
+  compareModuleIdsByTitle,
+  getCurrentActiveModuleIds,
+  moduleTitle,
+  scopeLabel,
+  isGlobalScope,
+  getStoreSettingKey,
+  normalizeProfilesStore,
+  normalizeProfile,
+  getProfilesForScope,
+  getAllProfiles,
+  saveProfilesForScope,
+  upsertProfile,
+  removeProfile,
+  findProfileById,
+  createCurrentProfile,
+  buildComparison,
+  asTitleList,
+  asTagList,
+  getModuleCompatibilityState,
+  resolveRequiredModules,
+  collectProfilePreflight,
+  presentProfile,
+  formatModuleList,
+  confirmProfileApplication,
+  applyProfile,
+  exportProfiles,
+  importProfilesFromFile,
+  SMLSettingsMenu,
+  SMLLoadoutsManager
+};
