@@ -389,6 +389,36 @@ test("confirm and apply profile handle permission, blocking, no-change, and succ
   assert.equal(env.state.notifications.warn.length >= 1, true);
 });
 
+test("apply profile treats removal-only changes as changes even if diffObject misses deletions", async () => {
+  const originalDiffObject = env.foundry.utils.diffObject;
+  env.foundry.utils.diffObject = (left, right) => {
+    const addedOrChanged = Object.entries(right).some(([key, value]) => left[key] !== value);
+    return addedOrChanged ? { changed: true } : {};
+  };
+
+  env.state.settingsValues.set("core.moduleConfiguration", {
+    "sephrals-module-loadouts": true,
+    "module-a": true,
+    "module-b": true,
+    "module-c": true
+  });
+
+  try {
+    await __test__.applyProfile(createProfile({ name: "Trim", moduleIds: ["module-a"] }));
+  } finally {
+    env.foundry.utils.diffObject = originalDiffObject;
+  }
+
+  assert.deepEqual(env.state.reloadCalls, [{ world: true }]);
+  assert.equal(env.state.settingWrites.at(-1).moduleId, "core");
+  assert.deepEqual(env.state.settingWrites.at(-1).value, {
+    "sephrals-module-loadouts": true,
+    "module-a": true
+  });
+  assert.equal(env.state.notifications.info.includes("no changes"), false);
+  assert.equal(env.state.notifications.info.some((entry) => entry.includes("Trim")), true);
+});
+
 test("exports and imports profiles, including replacement and explicit world scopes", async () => {
   setStore(__test__.WORLD_PROFILES_SETTING, [createProfile({ id: "w1", name: "World", scope: __test__.PROFILE_SCOPES.WORLD })]);
   setStore(__test__.GLOBAL_PROFILES_SETTING, [createProfile({ id: "g1", name: "Global", scope: __test__.PROFILE_SCOPES.GLOBAL })]);

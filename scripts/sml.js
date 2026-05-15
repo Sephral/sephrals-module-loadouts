@@ -170,15 +170,23 @@ function getCurrentModuleConfiguration() {
   return foundry.utils.deepClone(configuration);
 }
 
+function getEnabledModuleIdsFromConfiguration(configuration = {}) {
+  return Object.keys(configuration)
+    .filter((id) => configuration[id] === true && game.modules.has(id))
+    .sort(compareModuleIdsByTitle);
+}
+
+function equalModuleIdLists(left, right) {
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
+}
+
 function compareModuleIdsByTitle(left, right) {
   return moduleTitle(left).localeCompare(moduleTitle(right), game.i18n.lang, { sensitivity: "base" });
 }
 
 function getCurrentActiveModuleIds() {
-  const configuration = getCurrentModuleConfiguration();
-  return Object.keys(configuration)
-    .filter((id) => configuration[id] === true && game.modules.has(id))
-    .sort(compareModuleIdsByTitle);
+  return getEnabledModuleIdsFromConfiguration(getCurrentModuleConfiguration());
 }
 
 function moduleTitle(moduleId) {
@@ -457,19 +465,27 @@ function formatModuleList(moduleIds) {
   return game.i18n.getListFormatter().format(moduleIds.map(moduleTitle));
 }
 
+function renderPreflightSection(label, items) {
+  if (!items.length) return "";
+  const entries = items
+    .map((item) => `<li>${foundry.utils.escapeHTML(String(item))}</li>`)
+    .join("");
+  return `<section><p><strong>${label}</strong></p><ul>${entries}</ul></section>`;
+}
+
 async function confirmProfileApplication(profile, preflight) {
   const parts = [];
   if (preflight.autoEnabledTitles.size) {
-    parts.push(`<p><strong>${localize("SML.Dialog.Preflight.AutoEnable")}</strong> ${foundry.utils.escapeHTML(game.i18n.getListFormatter().format(Array.from(preflight.autoEnabledTitles)))}</p>`);
+    parts.push(renderPreflightSection(localize("SML.Dialog.Preflight.AutoEnable"), Array.from(preflight.autoEnabledTitles)));
   }
   if (preflight.warningDetails.length) {
-    parts.push(`<p><strong>${localize("SML.Dialog.Preflight.DependencyWarnings")}</strong> ${foundry.utils.escapeHTML(game.i18n.getListFormatter().format(preflight.warningDetails))}</p>`);
+    parts.push(renderPreflightSection(localize("SML.Dialog.Preflight.DependencyWarnings"), preflight.warningDetails));
   }
   if (preflight.compatibilityWarnings.length) {
-    parts.push(`<p><strong>${localize("SML.Dialog.Preflight.CompatibilityWarnings")}</strong> ${foundry.utils.escapeHTML(game.i18n.getListFormatter().format(preflight.compatibilityWarnings))}</p>`);
+    parts.push(renderPreflightSection(localize("SML.Dialog.Preflight.CompatibilityWarnings"), preflight.compatibilityWarnings));
   }
   if (preflight.missingModules.length) {
-    parts.push(`<p><strong>${localize("SML.Dialog.Preflight.MissingModules")}</strong> ${foundry.utils.escapeHTML(formatModuleList(preflight.missingModules))}</p>`);
+    parts.push(renderPreflightSection(localize("SML.Dialog.Preflight.MissingModules"), preflight.missingModules.map(moduleTitle)));
   }
   if (!parts.length) return true;
 
@@ -502,7 +518,10 @@ async function applyProfile(profile) {
     if (game.modules.has(moduleId)) newSettings[moduleId] = true;
   }
 
-  const requiresReload = !foundry.utils.isEmpty(foundry.utils.diffObject(oldSettings, newSettings));
+  const requiresReload = !equalModuleIdLists(
+    getEnabledModuleIdsFromConfiguration(oldSettings),
+    getEnabledModuleIdsFromConfiguration(newSettings)
+  );
   if (!requiresReload) {
     ui.notifications?.info(localize("SML.Notification.NoChanges"));
     return;
@@ -879,6 +898,8 @@ export const __test__ = {
   canManageModules,
   getModuleConfigurationSettingKey,
   getCurrentModuleConfiguration,
+  getEnabledModuleIdsFromConfiguration,
+  equalModuleIdLists,
   compareModuleIdsByTitle,
   getCurrentActiveModuleIds,
   moduleTitle,
