@@ -1,0 +1,34 @@
+{
+  "id": "sephrals-module-loadouts",
+  "title": "Sephral's Module Loadouts",
+  "description": "Save, compare, apply, export, and import world-specific module activation profiles for Foundry VTT.",
+  "version": "0.1.0",
+  "compatibility": {
+    "minimum": 13,
+    "verified": "14.361"
+  },
+  "authors": [
+    {
+      "name": "Sephral"
+    }
+  ],
+  "url": "https://github.com/Sephral/sephrals-module-loadouts.git",
+  "esmodules": [
+    "scripts/sml.js"
+  ],
+  "styles": [
+    "styles/sml.css"
+  ],
+  "languages": [
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "lang/en.json"
+    },
+    {
+      "lang": "de",
+      "name": "Deutsch",
+      "path": "lang/de.json"
+    }
+  ]
+}

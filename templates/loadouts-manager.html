@@ -1,0 +1,116 @@
+<form class="sml-app flexcol" autocomplete="off" data-ui-theme="{{uiTheme}}">
+  <section class="sml-hero">
+    <div class="sml-eyebrow">{{localize "SML.Manager.Eyebrow"}}</div>
+    <div class="sml-heading-row">
+      <div class="sml-heading-block">
+        <h2>{{localize "SML.Title"}}</h2>
+        <p class="notes sml-summary">{{localize "SML.Manager.Summary" world=worldName count=currentActiveCount}}</p>
+        <p class="notes sml-scope-summary">{{localize "SML.Manager.ScopeSummary" worldCount=worldCount globalCount=globalCount}}</p>
+      </div>
+      <div class="sml-stat-list">
+        <span class="sml-stat-pill">
+          <span class="sml-stat-value">{{currentActiveCount}}</span>
+          <span class="sml-stat-label">{{localize "SML.Manager.ActiveModulesStat"}}</span>
+        </span>
+        <span class="sml-stat-pill">
+          <span class="sml-stat-value">{{loadoutCount}}</span>
+          <span class="sml-stat-label">{{localize "SML.Manager.LoadoutsStat"}}</span>
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <section class="sml-panel">
+    <header class="sml-panel-header">
+      <div class="sml-panel-heading">
+        <span class="sml-panel-title">{{localize "SML.Manager.ControlsTitle"}}</span>
+        <span class="sml-panel-hint">{{localize "SML.Manager.ControlsHint"}}</span>
+      </div>
+      <div class="sml-toolbar sml-toolbar-wide">
+        <button type="button" class="sml-inline-action is-primary" data-action="save-current">
+          <i class="fa-solid fa-floppy-disk"></i>
+          <span>{{localize "SML.Actions.SaveCurrent"}}</span>
+        </button>
+        <button type="button" class="sml-inline-action" data-action="export-profiles" {{#unless hasProfiles}}disabled{{/unless}}>
+          <i class="fa-solid fa-file-export"></i>
+          <span>{{localize "SML.Actions.Export"}}</span>
+        </button>
+        <button type="button" class="sml-inline-action" data-action="import-profiles">
+          <i class="fa-solid fa-file-import"></i>
+          <span>{{localize "SML.Actions.Import"}}</span>
+        </button>
+        <label class="sml-import-input" aria-hidden="true">
+          <span class="sml-visually-hidden">{{localize "SML.Actions.Import"}}</span>
+          <input type="file" accept="application/json,.json" data-action="import-file" title="{{localize "SML.Actions.Import"}}">
+        </label>
+      </div>
+    </header>
+
+    {{#unless canManage}}
+    <section class="sml-banner sml-banner-warning">
+      <i class="fa-solid fa-triangle-exclamation"></i>
+      <span>{{localize "SML.Manager.PermissionWarning"}}</span>
+    </section>
+    {{/unless}}
+
+    {{#if hasProfiles}}
+    <section class="sml-profile-list flexcol">
+      {{#each profiles}}
+      <article class="sml-profile-card">
+        <header class="sml-profile-head">
+          <div class="sml-profile-main">
+            <div class="sml-profile-title-row">
+              <h3>{{name}}</h3>
+              <span class="sml-badge sml-badge-scope">{{scopeLabel}}</span>
+            </div>
+            {{#if description}}
+            <p class="notes sml-profile-description">{{description}}</p>
+            {{/if}}
+            {{#if tagsLabel}}
+            <p class="sml-tags">{{tagsLabel}}</p>
+            {{/if}}
+            <div class="sml-profile-meta">
+              <span class="sml-badge">{{localize "SML.Manager.ModulesBadge" count=moduleCount}}</span>
+              <span class="sml-badge sml-badge-positive" title="{{matchingTitles}}">{{localize "SML.Manager.MatchesBadge" count=matchesCount}}</span>
+              <span class="sml-badge sml-badge-info" title="{{enableTitles}}">{{localize "SML.Manager.EnableBadge" count=toEnableCount}}</span>
+              <span class="sml-badge sml-badge-muted" title="{{disableTitles}}">{{localize "SML.Manager.DisableBadge" count=toDisableCount}}</span>
+              <span class="sml-badge sml-badge-warning" title="{{missingTitles}}">{{localize "SML.Manager.MissingBadge" count=missingCount}}</span>
+              <span class="sml-badge sml-badge-info" title="{{autoEnableTitles}}">{{localize "SML.Manager.AutoEnableBadge" count=autoEnableCount}}</span>
+              <span class="sml-badge sml-badge-warning" title="{{warningTitles}}">{{localize "SML.Manager.WarningBadge" count=warningCount}}</span>
+              <span class="sml-badge sml-badge-danger" title="{{blockingTitles}}">{{localize "SML.Manager.BlockingBadge" count=blockingCount}}</span>
+            </div>
+            <footer class="sml-profile-foot">
+              <span>{{localize "SML.Manager.UpdatedAt" updatedAt=updatedAtLabel}}</span>
+            </footer>
+          </div>
+          <div class="sml-profile-actions">
+            <button type="button" class="sml-inline-action is-primary" data-action="apply-profile" data-profile-id="{{id}}" {{#unless ../canManage}}disabled{{/unless}}>
+              <i class="fa-solid fa-bolt"></i>
+              <span>{{localize "SML.Actions.Apply"}}</span>
+            </button>
+            <button type="button" class="sml-inline-action" data-action="edit-profile" data-profile-id="{{id}}" {{#unless ../canManage}}disabled{{/unless}}>
+              <i class="fa-solid fa-pen"></i>
+              <span>{{localize "SML.Actions.Edit"}}</span>
+            </button>
+            <button type="button" class="sml-inline-action" data-action="duplicate-profile" data-profile-id="{{id}}" {{#unless ../canManage}}disabled{{/unless}}>
+              <i class="fa-solid fa-copy"></i>
+              <span>{{localize "SML.Actions.Duplicate"}}</span>
+            </button>
+            <button type="button" class="sml-inline-action" data-action="delete-profile" data-profile-id="{{id}}" {{#unless ../canManage}}disabled{{/unless}}>
+              <i class="fa-solid fa-trash"></i>
+              <span>{{localize "SML.Actions.Delete"}}</span>
+            </button>
+          </div>
+        </header>
+      </article>
+      {{/each}}
+    </section>
+    {{else}}
+    <section class="sml-empty-state flexcol">
+      <i class="fa-solid fa-cubes-stacked"></i>
+      <h3 class="sml-empty-title">{{localize "SML.Manager.EmptyTitle"}}</h3>
+      <p class="notes sml-empty-copy">{{localize "SML.Manager.EmptyBody"}}</p>
+    </section>
+    {{/if}}
+  </section>
+</form>
