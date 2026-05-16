@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -86,6 +87,7 @@ function createManagerHtml() {
 
 test.beforeEach(() => {
   env.reset();
+  __test__.resetModuleTranslations();
   env.addModule(__test__.MODULE_ID, { title: "Sephral's Module Loadouts" });
   env.addModule("module-a", { title: "Alpha" });
   env.addModule("module-b", { title: "Beta" });
@@ -100,9 +102,19 @@ test.beforeEach(() => {
   env.state.settingsValues.set(`sephrals-module-loadouts.${__test__.UI_THEME_SETTING}`, __test__.UI_THEMES.SIGNATURE);
 });
 
+test.after(() => {
+  env.restore();
+});
+
 test("registers settings, menu, keybinding, and ready API", async () => {
   await env.hooks.trigger("init");
-  assert.equal(env.state.registerCalls.length, 3);
+  assert.equal(env.state.registerCalls.length, 4);
+  const languageSetting = env.state.registerCalls.find((entry) => entry.key === __test__.UI_LANGUAGE_SETTING);
+  assert.deepEqual(languageSetting.data.choices, {
+    default: "Follow Foundry",
+    de: "Deutsch",
+    en: "English"
+  });
   assert.equal(env.state.registerMenuCalls.length, 1);
   assert.equal(env.state.keybindingCalls.length, 1);
   assert.equal(env.state.keybindingCalls[0].data.restricted, true);
@@ -121,6 +133,54 @@ test("registers settings, menu, keybinding, and ready API", async () => {
 
   env.state.modules.delete(__test__.MODULE_ID);
   await env.hooks.trigger("ready");
+});
+
+test("language helpers load overrides and rerender the open manager", async () => {
+  await env.hooks.trigger("init");
+
+  globalThis.fetch = async (url) => ({
+    ok: true,
+    async json() {
+      const language = /\/(en|de)\.json$/.exec(String(url))?.[1];
+      if (language === "de") {
+        return {
+          "SML.Title": "Modul-Loadouts",
+          "SML.Settings.Menu.Label": "Manager öffnen"
+        };
+      }
+
+      return {
+        "SML.Title": "Module Loadouts",
+        "SML.Settings.Menu.Label": "Open Loadout Manager"
+      };
+    }
+  });
+
+  assert.equal(__test__.normalizeUiLanguage("de-DE"), "de");
+  assert.equal(__test__.normalizeUiLanguage("en_US"), "en");
+  assert.equal(__test__.normalizeUiLanguage("fr"), "en");
+
+  env.state.settingsRegistry.set(`sephrals-module-loadouts.${__test__.UI_LANGUAGE_SETTING}`, {});
+  env.state.settingsValues.set(`sephrals-module-loadouts.${__test__.UI_LANGUAGE_SETTING}`, "default");
+  env.state.lang = "de-DE";
+  assert.equal(__test__.getModuleLanguage(), "de");
+
+  env.state.settingsValues.set(`sephrals-module-loadouts.${__test__.UI_LANGUAGE_SETTING}`, "en");
+  assert.equal(__test__.getModuleLanguage(), "en");
+
+  const manager = __test__.openManager();
+  const baselineRenderCount = manager.renderCalls.length;
+  const languageSetting = env.state.registerCalls.find((entry) => entry.key === __test__.UI_LANGUAGE_SETTING);
+
+  env.state.settingsValues.set(`sephrals-module-loadouts.${__test__.UI_LANGUAGE_SETTING}`, "de");
+  languageSetting.data.onChange("de");
+  await flushPromises();
+
+  assert.equal(manager.options.title, "Modul-Loadouts");
+  assert.equal(__test__.localize("SML.Settings.Menu.Label"), "Manager öffnen");
+  assert.equal(manager.renderCalls.length, baselineRenderCount + 1);
+
+  await manager.close();
 });
 
 test("localization and theme helpers handle missing settings and theme toggles", () => {
@@ -463,6 +523,7 @@ test("settings menu and manager lifecycle expose the expected UI behavior", asyn
   assert.equal(data.hasProfiles, true);
   assert.equal(data.globalCount, 1);
   assert.equal(data.worldCount, 1);
+  assert.equal(data.strings.title, "Module Loadouts");
 
   manager.element = [createThemeHost()];
   await manager._render(true, { test: true });
@@ -473,6 +534,19 @@ test("settings menu and manager lifecycle expose the expected UI behavior", asyn
   const secondManager = __test__.openManager();
   assert.notEqual(firstManager, secondManager);
   await secondManager.close();
+});
+
+test("manager template is driven by prelocalized strings", () => {
+  const template = readFileSync(new URL(modulePath("templates/loadouts-manager.html")), "utf8");
+
+  assert.equal(template.includes("{{localize \"SML."), false);
+  assert.equal(typeof __test__.getManagerTemplateStrings, "function");
+  assert.equal(__test__.getManagerTemplateStrings({
+    worldName: "Test World",
+    currentActiveCount: 6,
+    worldCount: 1,
+    globalCount: 0
+  }).title, "Module Loadouts");
 });
 
 test("manager listeners exercise save, export, import, edit, duplicate, apply, and delete flows", async () => {

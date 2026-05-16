@@ -351,6 +351,9 @@ export function createTestEnvironment() {
     }
   };
 
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({}) });
+
   const document = {
     createElement() {
       const button = createButton();
@@ -412,6 +415,11 @@ export function createTestEnvironment() {
       state.userCanManage = true;
       state.lang = "en";
       state.localizations = new Map([
+        ["SML.Settings.Language.Name", "Language"],
+        ["SML.Settings.Language.Hint", "Language hint"],
+        ["SML.Language.Default", "Follow Foundry"],
+        ["SML.Language.De", "Deutsch"],
+        ["SML.Language.En", "English"],
         ["SML.Scope.World", "World"],
         ["SML.Scope.Global", "Installation"],
         ["SML.Manager.AvailabilityBlocked", "blocked"],
@@ -458,11 +466,15 @@ export function createTestEnvironment() {
         ["SML.Dialog.Delete.Content", "Delete {name}"],
         ["SML.Manager.UpdatedAt", "Updated {updatedAt}"]
       ]);
+      globalThis.fetch = async () => ({ ok: true, json: async () => ({}) });
     },
     addModule(id, overrides = {}) {
       const record = createModuleRecord(id, overrides);
       state.modules.set(id, record);
       return record;
+    },
+    restore() {
+      globalThis.fetch = originalFetch;
     }
   };
 }

@@ -1,9 +1,12 @@
 const MODULE_ID = "sephrals-module-loadouts";
 const WORLD_PROFILES_SETTING = "worldProfiles";
 const GLOBAL_PROFILES_SETTING = "globalProfiles";
+const UI_LANGUAGE_SETTING = "uiLanguage";
 const UI_THEME_SETTING = "uiTheme";
 const STORAGE_VERSION = 2;
 const HOTKEY_PRECEDENCE = CONST.KEYBINDING_PRECEDENCE.NORMAL;
+const SUPPORTED_UI_LANGUAGES = Object.freeze(["en", "de"]);
+const DEFAULT_UI_LANGUAGE = "en";
 const PROFILE_SCOPES = Object.freeze({
   WORLD: "world",
   GLOBAL: "global"
@@ -12,6 +15,8 @@ const UI_THEMES = Object.freeze({
   SIGNATURE: "signature",
   FOUNDRY: "foundry"
 });
+const MODULE_TRANSLATION_CACHE = new Map();
+let MODULE_TRANSLATION_LOAD = null;
 
 let managerApp = null;
 
@@ -28,6 +33,23 @@ Hooks.once("init", () => {
     config: false,
     type: Object,
     default: defaultStore()
+  });
+
+  game.settings.register(MODULE_ID, UI_LANGUAGE_SETTING, {
+    scope: "client",
+    config: true,
+    type: String,
+    default: "default",
+    name: game.i18n.localize("SML.Settings.Language.Name"),
+    hint: game.i18n.localize("SML.Settings.Language.Hint"),
+    choices: {
+      default: game.i18n.localize("SML.Language.Default"),
+      de: game.i18n.localize("SML.Language.De"),
+      en: game.i18n.localize("SML.Language.En")
+    },
+    onChange: () => {
+      void ensureModuleTranslationsLoaded().then(() => refreshLocalizedUi());
+    }
   });
 
   game.settings.register(MODULE_ID, UI_THEME_SETTING, {
@@ -75,6 +97,7 @@ Hooks.once("init", () => {
 });
 
 Hooks.once("ready", () => {
+  void ensureModuleTranslationsLoaded();
   const module = game.modules.get(MODULE_ID);
   if (module) {
     module.api = {
@@ -91,7 +114,16 @@ function defaultStore() {
   };
 }
 
+function interpolateTemplate(template, data = {}) {
+  return String(template ?? "").replace(/\{([^}]+)\}/g, (_match, field) => {
+    const replacement = data[field];
+    return replacement === undefined || replacement === null ? `{${field}}` : String(replacement);
+  });
+}
+
 function localize(key, data = null) {
+  const override = MODULE_TRANSLATION_CACHE.get(getModuleLanguage())?.[key];
+  if (override) return data && Object.keys(data).length ? interpolateTemplate(override, data) : override;
   if (data && Object.keys(data).length) return game.i18n.format(key, data);
   return game.i18n.localize(key);
 }
@@ -105,6 +137,64 @@ function getRegisteredSettingValue(settingKey, fallback) {
   } catch (_error) {
     return fallback;
   }
+}
+
+function normalizeUiLanguage(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) return DEFAULT_UI_LANGUAGE;
+  if (SUPPORTED_UI_LANGUAGES.includes(normalized)) return normalized;
+
+  const baseLanguage = normalized.split(/[-_.]/)[0];
+  return SUPPORTED_UI_LANGUAGES.includes(baseLanguage) ? baseLanguage : DEFAULT_UI_LANGUAGE;
+}
+
+function getPreferredLanguage() {
+  return getRegisteredSettingValue(UI_LANGUAGE_SETTING, "default");
+}
+
+function getModuleLanguage(preferredLanguage = getPreferredLanguage()) {
+  if (SUPPORTED_UI_LANGUAGES.includes(preferredLanguage)) return preferredLanguage;
+  return normalizeUiLanguage(game.i18n?.lang);
+}
+
+function getSortLanguage() {
+  return getModuleLanguage();
+}
+
+async function loadModuleTranslations(language) {
+  const normalized = normalizeUiLanguage(language);
+  if (MODULE_TRANSLATION_CACHE.has(normalized)) return MODULE_TRANSLATION_CACHE.get(normalized);
+
+  const response = await fetch(`modules/${MODULE_ID}/lang/${normalized}.json`);
+  if (!response.ok) throw new Error(`Failed to load ${normalized} translations (${response.status})`);
+
+  const translations = await response.json();
+  MODULE_TRANSLATION_CACHE.set(normalized, translations);
+  return translations;
+}
+
+async function ensureModuleTranslationsLoaded() {
+  if (!MODULE_TRANSLATION_LOAD) {
+    MODULE_TRANSLATION_LOAD = Promise.all(SUPPORTED_UI_LANGUAGES.map((language) => loadModuleTranslations(language)))
+      .catch((error) => {
+        console.warn(`${MODULE_ID} |`, error);
+        return null;
+      });
+  }
+
+  return MODULE_TRANSLATION_LOAD;
+}
+
+function refreshLocalizedUi() {
+  if (!managerApp) return;
+  managerApp.options ??= {};
+  managerApp.options.title = localize("SML.Title");
+  managerApp.render(true);
+}
+
+function resetModuleTranslations() {
+  MODULE_TRANSLATION_CACHE.clear();
+  MODULE_TRANSLATION_LOAD = null;
 }
 
 function normalizeTheme(theme) {
@@ -152,6 +242,8 @@ function injectModuleManagementLauncher(app, html) {
 
 function openManager() {
   if (!managerApp) managerApp = new SMLLoadoutsManager();
+  managerApp.options ??= {};
+  managerApp.options.title = localize("SML.Title");
   managerApp.render(true);
   return managerApp;
 }
@@ -182,7 +274,7 @@ function equalModuleIdLists(left, right) {
 }
 
 function compareModuleIdsByTitle(left, right) {
-  return moduleTitle(left).localeCompare(moduleTitle(right), game.i18n.lang, { sensitivity: "base" });
+  return moduleTitle(left).localeCompare(moduleTitle(right), getSortLanguage(), { sensitivity: "base" });
 }
 
 function getCurrentActiveModuleIds() {
@@ -245,7 +337,8 @@ function normalizeProfile(profile, fallbackScope = PROFILE_SCOPES.WORLD) {
     id: String(profile.id ?? foundry.utils.randomID()),
     name,
     description: String(profile.description ?? "").trim(),
-    tags: Array.from(new Set(tags.map((value) => String(value ?? "").trim()).filter(Boolean))).sort((left, right) => left.localeCompare(right, game.i18n.lang, { sensitivity: "base" })),
+    tags: Array.from(new Set(tags.map((value) => String(value ?? "").trim()).filter(Boolean))).sort((left, right) => left.localeCompare(right, getSortLanguage(), { sensitivity: "base" })),
+    tags: Array.from(new Set(tags.map((value) => String(value ?? "").trim()).filter(Boolean))).sort((left, right) => left.localeCompare(right, getSortLanguage(), { sensitivity: "base" })),
     scope: normalizedScope,
     moduleIds: uniqueModuleIds.sort(compareModuleIdsByTitle),
     createdAt,
@@ -436,7 +529,7 @@ function presentProfile(profile) {
   const comparison = buildComparison(profile);
   const preflight = collectProfilePreflight(profile);
   const updatedDate = new Date(profile.updatedAt);
-  const updatedAtLabel = Number.isNaN(updatedDate.getTime()) ? profile.updatedAt : updatedDate.toLocaleString(game.i18n.lang);
+  const updatedAtLabel = Number.isNaN(updatedDate.getTime()) ? profile.updatedAt : updatedDate.toLocaleString(getSortLanguage());
 
   return {
     ...profile,
@@ -457,7 +550,41 @@ function presentProfile(profile) {
     autoEnableTitles: Array.from(preflight.autoEnabledTitles).join(", ") || "-",
     warningTitles: [...preflight.warningDetails, ...preflight.compatibilityWarnings].join("\n") || "-",
     blockingTitles: preflight.blockingDependencies.join("\n") || "-",
-    updatedAtLabel
+    updatedAtLabel,
+    modulesBadge: localize("SML.Manager.ModulesBadge", { count: profile.moduleIds.length }),
+    matchesBadge: localize("SML.Manager.MatchesBadge", { count: comparison.matches.length }),
+    enableBadge: localize("SML.Manager.EnableBadge", { count: comparison.toEnable.length }),
+    disableBadge: localize("SML.Manager.DisableBadge", { count: comparison.toDisable.length }),
+    missingBadge: localize("SML.Manager.MissingBadge", { count: comparison.missing.length }),
+    autoEnableBadge: localize("SML.Manager.AutoEnableBadge", { count: preflight.autoEnabledTitles.size }),
+    warningBadge: localize("SML.Manager.WarningBadge", {
+      count: preflight.warningDetails.length + preflight.compatibilityWarnings.length
+    }),
+    blockingBadge: localize("SML.Manager.BlockingBadge", { count: preflight.blockingDependencies.length }),
+    updatedAtText: localize("SML.Manager.UpdatedAt", { updatedAt: updatedAtLabel })
+  };
+}
+
+function getManagerTemplateStrings({ worldName, currentActiveCount, worldCount, globalCount }) {
+  return {
+    eyebrow: localize("SML.Manager.Eyebrow"),
+    title: localize("SML.Title"),
+    summary: localize("SML.Manager.Summary", { world: worldName, count: currentActiveCount }),
+    scopeSummary: localize("SML.Manager.ScopeSummary", { worldCount, globalCount }),
+    activeModulesStat: localize("SML.Manager.ActiveModulesStat"),
+    loadoutsStat: localize("SML.Manager.LoadoutsStat"),
+    controlsTitle: localize("SML.Manager.ControlsTitle"),
+    controlsHint: localize("SML.Manager.ControlsHint"),
+    saveCurrent: localize("SML.Actions.SaveCurrent"),
+    export: localize("SML.Actions.Export"),
+    import: localize("SML.Actions.Import"),
+    permissionWarning: localize("SML.Manager.PermissionWarning"),
+    apply: localize("SML.Actions.Apply"),
+    edit: localize("SML.Actions.Edit"),
+    duplicate: localize("SML.Actions.Duplicate"),
+    delete: localize("SML.Actions.Delete"),
+    emptyTitle: localize("SML.Manager.EmptyTitle"),
+    emptyBody: localize("SML.Manager.EmptyBody")
   };
 }
 
@@ -644,17 +771,27 @@ class SMLLoadoutsManager extends FormApplication {
   getData() {
     const profiles = getAllProfiles()
       .map(presentProfile)
-      .sort((left, right) => left.name.localeCompare(right.name, game.i18n.lang, { sensitivity: "base" }));
+        .sort((left, right) => left.name.localeCompare(right.name, getSortLanguage(), { sensitivity: "base" }));
     const uiTheme = getThemePreference();
+    const currentActiveCount = getCurrentActiveModuleIds().length;
+    const globalCount = getProfilesForScope(PROFILE_SCOPES.GLOBAL).profiles.length;
+    const worldCount = getProfilesForScope(PROFILE_SCOPES.WORLD).profiles.length;
+    const worldName = game.world?.title ?? game.world?.id ?? "-";
 
     return {
+      strings: getManagerTemplateStrings({
+        worldName,
+        currentActiveCount,
+        worldCount,
+        globalCount
+      }),
       canManage: canManageModules(),
       hasProfiles: profiles.length > 0,
       profiles,
-      currentActiveCount: getCurrentActiveModuleIds().length,
-      worldName: game.world?.title ?? game.world?.id ?? "-",
-      globalCount: getProfilesForScope(PROFILE_SCOPES.GLOBAL).profiles.length,
-      worldCount: getProfilesForScope(PROFILE_SCOPES.WORLD).profiles.length,
+      currentActiveCount,
+      worldName,
+      globalCount,
+      worldCount,
       loadoutCount: profiles.length,
       uiTheme
     };
@@ -882,14 +1019,22 @@ export const __test__ = {
   MODULE_ID,
   WORLD_PROFILES_SETTING,
   GLOBAL_PROFILES_SETTING,
+  UI_LANGUAGE_SETTING,
   UI_THEME_SETTING,
   STORAGE_VERSION,
   HOTKEY_PRECEDENCE,
+  SUPPORTED_UI_LANGUAGES,
   PROFILE_SCOPES,
   UI_THEMES,
   defaultStore,
   localize,
   getRegisteredSettingValue,
+  normalizeUiLanguage,
+  getPreferredLanguage,
+  getModuleLanguage,
+  ensureModuleTranslationsLoaded,
+  refreshLocalizedUi,
+  resetModuleTranslations,
   normalizeTheme,
   getThemePreference,
   applyManagerTheme,
@@ -927,6 +1072,7 @@ export const __test__ = {
   applyProfile,
   exportProfiles,
   importProfilesFromFile,
+  getManagerTemplateStrings,
   SMLSettingsMenu,
   SMLLoadoutsManager
 };
