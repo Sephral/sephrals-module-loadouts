@@ -15,6 +15,7 @@ const filesToCopy = [
   "LICENSE.md",
   "README.md",
   "lang",
+  "media",
   "scripts",
   "styles",
   "templates"

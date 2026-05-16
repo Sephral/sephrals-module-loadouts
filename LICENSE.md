@@ -15,7 +15,7 @@ This includes use in private games, online games, streamed games, community game
 
 ## 2. Contributions and Forks
 
-You may fork the public repository using GitHub's standard fork functionality for personal use, review, issue reproduction, private modifications, or preparing contributions.
+You may fork the public repository using GitHub’s standard fork functionality for personal use, review, issue reproduction, private modifications, or preparing contributions.
 
 You may submit issues, suggestions, bug reports, and pull requests to the original repository.
 
