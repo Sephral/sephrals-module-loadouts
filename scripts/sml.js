@@ -122,7 +122,8 @@ function interpolateTemplate(template, data = {}) {
 }
 
 function localize(key, data = null) {
-  const override = MODULE_TRANSLATION_CACHE.get(getModuleLanguage())?.[key];
+  const overrideLanguage = getOverrideLanguage();
+  const override = overrideLanguage ? MODULE_TRANSLATION_CACHE.get(overrideLanguage)?.[key] : null;
   if (override) return data && Object.keys(data).length ? interpolateTemplate(override, data) : override;
   if (data && Object.keys(data).length) return game.i18n.format(key, data);
   return game.i18n.localize(key);
@@ -157,8 +158,14 @@ function getModuleLanguage(preferredLanguage = getPreferredLanguage()) {
   return normalizeUiLanguage(game.i18n?.lang);
 }
 
+// Bundled translations only override Foundry's own when a language was picked explicitly,
+// so "Follow Foundry" keeps community translations from game.i18n.
+function getOverrideLanguage(preferredLanguage = getPreferredLanguage()) {
+  return SUPPORTED_UI_LANGUAGES.includes(preferredLanguage) ? preferredLanguage : null;
+}
+
 function getSortLanguage() {
-  return getModuleLanguage();
+  return getOverrideLanguage() ?? (game.i18n?.lang || DEFAULT_UI_LANGUAGE);
 }
 
 async function loadModuleTranslations(language) {
@@ -1032,6 +1039,8 @@ export const __test__ = {
   normalizeUiLanguage,
   getPreferredLanguage,
   getModuleLanguage,
+  getOverrideLanguage,
+  getSortLanguage,
   ensureModuleTranslationsLoaded,
   refreshLocalizedUi,
   resetModuleTranslations,

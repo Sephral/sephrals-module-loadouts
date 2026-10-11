@@ -180,6 +180,17 @@ test("language helpers load overrides and rerender the open manager", async () =
   assert.equal(__test__.localize("SML.Settings.Menu.Label"), "Manager öffnen");
   assert.equal(manager.renderCalls.length, baselineRenderCount + 1);
 
+  // "Follow Foundry" with a language the module does not bundle uses Foundry's (community) translation.
+  env.state.settingsValues.set(`sephrals-module-loadouts.${__test__.UI_LANGUAGE_SETTING}`, "default");
+  env.state.lang = "fr";
+  env.state.localizations.set("SML.Settings.Menu.Label", "Ouvrir le gestionnaire");
+  assert.equal(__test__.getOverrideLanguage(), null);
+  assert.equal(__test__.localize("SML.Settings.Menu.Label"), "Ouvrir le gestionnaire");
+  assert.equal(__test__.getSortLanguage(), "fr");
+  env.state.settingsValues.set(`sephrals-module-loadouts.${__test__.UI_LANGUAGE_SETTING}`, "en");
+  assert.equal(__test__.localize("SML.Settings.Menu.Label"), "Open Loadout Manager");
+  assert.equal(__test__.getSortLanguage(), "en");
+
   await manager.close();
 });
 
