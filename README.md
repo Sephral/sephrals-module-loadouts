@@ -1,99 +1,42 @@
 # Sephral's Module Loadouts
 
-Sephral's Module Loadouts is a Foundry VTT utility module for saving, comparing, applying, exporting, and importing module activation profiles for a single world or for your wider installation.
-
-## Foundry VTT
+**All modules for game night, a lean set for prep, almost nothing while you hunt a bug.** Module Loadouts saves each setup as a loadout and switches between them with one click.
 
 [![Foundry VTT package](https://img.shields.io/badge/Foundry%20VTT-Package%20page-fe6a1f?logo=foundryvirtualtabletop&logoColor=white)](https://foundryvtt.com/packages/sephrals-module-loadouts)
-
-Install the module from the package browser in Foundry VTT or open its [package page on foundryvtt.com](https://foundryvtt.com/packages/sephrals-module-loadouts).
-
-## Discord
-
 [![Join Discord](https://img.shields.io/badge/Discord-Join%20the%20community-5865F2?logo=discord&logoColor=white)](https://discord.gg/7BjCgDYaBP)
-
-Questions, feedback, and module support are welcome on [Discord](https://discord.gg/7BjCgDYaBP).
-
-## More modules
-
 [![More modules by Sephral](https://img.shields.io/badge/GitHub-More%20modules%20by%20Sephral-181717?logo=github&logoColor=white)](https://github.com/Sephral)
 
-More modules by Sephral for Foundry VTT are listed on [github.com/Sephral](https://github.com/Sephral).
+![Module Loadouts demo](media/demo.gif)
 
-## Demo
+## Highlights
 
-![SCBR demo](media/demo.gif)
+* **Save your setup:** store the active modules as a named loadout with a description and tags.
+* **Switch with one click:** apply a loadout and exactly its modules are active.
+* **See before you switch:** every loadout shows which modules it would enable, disable or cannot find.
+* **Undo included:** before every switch your current setup is saved automatically. One click takes you back.
+* **No broken worlds:** required dependencies are switched on for you, and missing ones stop the switch before anything breaks.
+* **One world or all of them:** keep a loadout in a single world or use it in every world of your installation.
+* **Stay organized:** tags, search, duplicates for variants and a JSON export to back up or share your loadouts.
+* **Right where you need it:** open the manager from Foundry's Manage Modules window or from the settings. A hotbar macro switches loadouts too.
 
-If the embedded preview is not available in your GitHub view, please check the media folder.
+## How it works
 
-## Current Features
+1. Open **Manage Modules** and click the layers icon in its title bar.
+2. Save your current setup as a loadout, for example *Game Night*.
+3. Later, pick a loadout such as *Prep*, *Minimal* or *Debug* and apply it.
 
-- Save the current active module configuration as a named profile
-- Choose a profile scope: `World` or `Installation`
-- Reuse installation-scoped loadouts in other worlds on the same Foundry client installation
-- Compare each saved profile against the current active module state
-- Edit stored profile name, description, tags, and scope
-- Duplicate profiles as a starting point for variants like `Live Game`, `Prep`, `Minimal`, `Debug`, or `Performance`
-- Apply a saved profile with one click
-- Switch back after an apply: the previous module state is saved automatically and the last three snapshots are kept
-- See which modules a profile would enable, disable, or is missing in an expandable list
-- Filter profiles by tag or search their names, descriptions, and tags
-- Apply, save, and compare profiles from macros through the module API
-- Auto-enable installed required module dependencies
-- Warn before applying when dependencies need auto-enabling, when profile modules are missing, or when compatibility is only partially verified
-- Block applying when required dependencies are missing or unavailable
-- Export all saved profiles to JSON
-- Import saved profiles from JSON
-- Choose the manager design in the module settings (`Signature` or `Foundry Default`)
-- Open the manager from Foundry settings or directly from the `Manage Modules` dialog
-- Keep Sephral's Module Loadouts active when applying a profile so the manager never disables itself
+## Install
 
-## Storage Model
+Search for **Module Loadouts** in Foundry's module browser or open the [package page](https://foundryvtt.com/packages/sephrals-module-loadouts).
 
-- `World` loadouts are stored in a world setting and only appear in that world
-- `Installation` loadouts are stored in a client setting and can be reused in other worlds from the same Foundry installation/browser profile
-- Exported JSON contains module metadata, export timestamp, world identifier, and all saved profiles including their scopes
+Foundry VTT v13 and v14 · any game system · English and German
 
-## Usage
+## Learn more
 
-Open the manager from Foundry's settings menu via **Sephral's Module Loadouts** or from the core **Manage Modules** dialog.
+The [manual](MANUAL.md) explains world and installation loadouts, the undo snapshots, export and import and the macro API.
 
-The manager design is configured in the module settings. The setting is client-scoped, so each Foundry installation or browser profile can keep its own preferred look.
+Questions or ideas? Join us on [Discord](https://discord.gg/7BjCgDYaBP). Looking for more? See [all modules by Sephral](https://github.com/Sephral).
 
-Counters with a value of zero are hidden. Open **Module changes** on a profile to read which modules would be enabled, disabled, or are not installed here.
+## License
 
-Click a tag above the list to show only the profiles with that tag. Click it again to show all profiles. The search box looks at names, descriptions, and tags. Both filters stay in place while the manager is open.
-
-## Undo for Apply
-
-Before a profile is applied, the module saves the current module state as a world profile named `Before apply` with the date and time. These snapshots carry the tag `auto` and an **Auto** marker. Apply one of them to switch back.
-
-Only the last three snapshots are kept. Older ones are removed when a new one is saved. Edit or duplicate a snapshot to keep it for good.
-
-## API for Macros
-
-The module API is available at `game.modules.get("sephrals-module-loadouts").api`. Profiles can be named by id or by name. Names ignore case. If a world profile and an installation profile share a name, the world profile is used.
-
-| Function | What it does |
-| --- | --- |
-| `apply(idOrName, { confirm = true })` | Applies a profile. It asks first unless `confirm` is `false`. Returns `true` when the module setup changed. |
-| `saveCurrent(name, { scope, description, tags })` | Saves the active modules. `scope` is `"world"` (default) or `"global"` for an installation profile. A profile with the same name in that scope is replaced. Returns the saved profile. |
-| `compare(idOrName)` | Returns `{ toEnable, toDisable, missing }` as lists of module ids. |
-| `getProfiles()` | Returns all saved profiles. |
-| `openManager()` | Opens the manager window. |
-
-`apply` and `saveCurrent` need the permission to manage modules, just like the manager. Missing or incompatible required dependencies still stop an apply.
-
-Hotbar macro example:
-
-```js
-game.modules.get("sephrals-module-loadouts").api.apply("Prep")
-```
-
-Suggested profiles:
-
-- Live Game
-- Prep
-- Minimal
-- Debug
-- Performance
+See [LICENSE.md](LICENSE.md).
