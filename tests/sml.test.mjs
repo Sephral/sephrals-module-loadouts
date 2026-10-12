@@ -371,6 +371,8 @@ test("comparison, presentation, and preflight logic resolve dependencies and war
         { id: "module-min", type: "module", compatibility: { minimum: "2.0.0" } },
         { id: "module-max", type: "module", compatibility: { maximum: "1.0.0" } },
         { id: "module-verified", type: "module", compatibility: { verified: "2.0.0" } },
+        { id: "module-verified-old", type: "module", compatibility: { verified: "2.0.0" } },
+        { id: "module-verified-new", type: "module", compatibility: { verified: "2.0.0" } },
         { id: "module-missing", type: "module" },
         { id: "skip-system", type: "system" }
       ]
@@ -379,6 +381,8 @@ test("comparison, presentation, and preflight logic resolve dependencies and war
   env.addModule("module-min", { title: "Min", version: "1.0.0" });
   env.addModule("module-max", { title: "Max", version: "2.0.0" });
   env.addModule("module-verified", { title: "Verified", version: "2.0.0" });
+  env.addModule("module-verified-old", { title: "Verified Old", version: "1.5.0" });
+  env.addModule("module-verified-new", { title: "Verified New", version: "2.1.0" });
   env.addModule("module-blocking-dep", {
     title: "Blocking Dependency",
     availability: CONST.PACKAGE_AVAILABILITY_CODES.REQUIRES_SYSTEM,
@@ -396,7 +400,10 @@ test("comparison, presentation, and preflight logic resolve dependencies and war
   assert.equal(blockingDetails.some((entry) => entry.includes(">= 2.0.0")), true);
   assert.equal(blockingDetails.some((entry) => entry.includes("<= 1.0.0")), true);
   assert.equal(blockingDetails.some((entry) => entry.includes("Blocking Dependency: requires system")), true);
-  assert.equal(warningDetails.some((entry) => entry.includes("verified up to 2.0.0")), true);
+  // Only a dependency newer than the verified version warns.
+  const verifiedWarnings = warningDetails.filter((entry) => entry.includes("verified up to 2.0.0"));
+  assert.equal(verifiedWarnings.length, 1);
+  assert.match(verifiedWarnings[0], /^Limiter -> Verified New /);
 });
 
 test("confirm and apply profile handle permission, blocking, no-change, and success paths", async () => {

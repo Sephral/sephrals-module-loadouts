@@ -345,7 +345,6 @@ function normalizeProfile(profile, fallbackScope = PROFILE_SCOPES.WORLD) {
     name,
     description: String(profile.description ?? "").trim(),
     tags: Array.from(new Set(tags.map((value) => String(value ?? "").trim()).filter(Boolean))).sort((left, right) => left.localeCompare(right, getSortLanguage(), { sensitivity: "base" })),
-    tags: Array.from(new Set(tags.map((value) => String(value ?? "").trim()).filter(Boolean))).sort((left, right) => left.localeCompare(right, getSortLanguage(), { sensitivity: "base" })),
     scope: normalizedScope,
     moduleIds: uniqueModuleIds.sort(compareModuleIdsByTitle),
     createdAt,
@@ -484,7 +483,7 @@ function resolveRequiredModules(moduleId, desiredIds, autoEnabledTitles, blockin
         blockingDetails.push(`${module.title} -> ${dependency.title} <= ${compatibility.maximum}`);
         continue;
       }
-      if (compatibility.verified && !foundry.utils.isNewerVersion(version, compatibility.verified)) {
+      if (compatibility.verified && foundry.utils.isNewerVersion(version, compatibility.verified)) {
         warningDetails.push(`${module.title} -> ${dependency.title} ${localize("SML.Manager.VerifiedWarningSuffix", { version: compatibility.verified })}`);
       }
     }
