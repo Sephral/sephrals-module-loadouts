@@ -159,6 +159,8 @@ export function createTestEnvironment() {
   const state = {
     promptValues: null,
     confirmResult: true,
+    dialogV2Result: true,
+    dialogV2Calls: [],
     fileText: "",
     randomIdCounter: 0,
     savedFiles: [],
@@ -257,6 +259,14 @@ export function createTestEnvironment() {
       }
     },
     applications: {
+      api: {
+        DialogV2: {
+          async confirm(options) {
+            state.dialogV2Calls.push(options);
+            return state.dialogV2Result;
+          }
+        }
+      },
       sidebar: {
         apps: {
           ModuleManagement: {
@@ -392,6 +402,8 @@ export function createTestEnvironment() {
     reset() {
       state.promptValues = null;
       state.confirmResult = true;
+      state.dialogV2Result = true;
+      state.dialogV2Calls = [];
       state.fileText = "";
       state.randomIdCounter = 0;
       state.savedFiles = [];
@@ -464,7 +476,14 @@ export function createTestEnvironment() {
         ["SML.Dialog.Replace.Content", "Replace {name}"],
         ["SML.Dialog.Delete.Title", "Delete"],
         ["SML.Dialog.Delete.Content", "Delete {name}"],
-        ["SML.Manager.UpdatedAt", "Updated {updatedAt}"]
+        ["SML.Manager.UpdatedAt", "Updated {updatedAt}"],
+        ["SML.Snapshot.Name", "Before apply ({date})"],
+        ["SML.Snapshot.Description", "Before {name}"],
+        ["SML.Notification.SnapshotSaved", "snapshot {name}"],
+        ["SML.Notification.ProfileNotFound", "not found {name}"],
+        ["SML.Notification.NameRequired", "name required"],
+        ["SML.Dialog.ConfirmApply.Enable", "Enable:"],
+        ["SML.Dialog.ConfirmApply.Disable", "Disable:"]
       ]);
       globalThis.fetch = async () => ({ ok: true, json: async () => ({}) });
     },

@@ -362,6 +362,119 @@
   margin-top: 0.05rem;
 }
 
+.sml-badge-auto {
+  gap: 0.25rem;
+  background: var(--sml-blue-soft);
+  color: var(--sml-blue);
+  cursor: help;
+}
+
+.sml-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+}
+
+.sml-filter-search {
+  flex: 1 1 14rem;
+  min-width: 10rem;
+  max-width: 22rem;
+  font-size: 0.8rem;
+}
+
+.sml-tag-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.22rem;
+}
+
+.sml-app .sml-tag-chip {
+  flex: 0 0 auto;
+  width: auto;
+  min-height: 0;
+  height: auto;
+  margin: 0;
+  padding: 0.14rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid rgba(73, 49, 32, 0.16);
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--sml-muted);
+  font-size: 0.72rem;
+  line-height: 1.2;
+}
+
+.sml-app .sml-tag-chip:hover,
+.sml-app .sml-tag-chip:focus {
+  border-color: rgba(181, 81, 45, 0.38);
+  box-shadow: 0 0 0 2px rgba(181, 81, 45, 0.12);
+}
+
+.sml-app .sml-tag-chip.is-active {
+  background: var(--sml-accent);
+  border-color: var(--sml-accent);
+  color: #fff8f4;
+}
+
+.sml-filter-empty {
+  margin: 0.2rem 0;
+  font-size: 0.8rem;
+  color: var(--sml-muted);
+}
+
+/* Cards set display, so the hidden attribute needs its own rule. */
+.sml-profile-card[hidden],
+.sml-filter-empty[hidden] {
+  display: none;
+}
+
+.sml-profile-details {
+  margin-top: 0.1rem;
+  font-size: 0.76rem;
+}
+
+.sml-profile-details summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--sml-muted);
+}
+
+.sml-profile-details summary:hover,
+.sml-profile-details summary:focus {
+  color: var(--sml-accent);
+}
+
+.sml-detail-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.35rem 0.7rem;
+  margin-top: 0.3rem;
+}
+
+.sml-detail-label {
+  display: block;
+  font-weight: 700;
+  font-size: 0.72rem;
+}
+
+.sml-detail-group.is-enable .sml-detail-label {
+  color: var(--sml-blue);
+}
+
+.sml-detail-group.is-disable .sml-detail-label {
+  color: #656565;
+}
+
+.sml-detail-group.is-missing .sml-detail-label {
+  color: var(--sml-accent);
+}
+
+.sml-detail-group ul {
+  margin: 0.1rem 0 0;
+  padding-left: 1.1rem;
+  color: var(--sml-ink);
+}
+
 .sml-empty-state {
   align-items: center;
   justify-content: center;
@@ -490,6 +603,51 @@
   transform: none;
   border-color: rgba(218, 197, 167, 0.3);
   box-shadow: 0 0 0 1px rgba(218, 197, 167, 0.08);
+}
+
+.sml-app[data-ui-theme="foundry"] .sml-badge-auto {
+  color: #d7c2a0;
+}
+
+.sml-app[data-ui-theme="foundry"] .sml-tag-chip {
+  background: rgba(58, 61, 68, 0.88);
+  border-color: rgba(218, 197, 167, 0.2);
+  color: rgba(240, 240, 224, 0.86);
+}
+
+.sml-app[data-ui-theme="foundry"] .sml-tag-chip:hover,
+.sml-app[data-ui-theme="foundry"] .sml-tag-chip:focus {
+  border-color: rgba(218, 197, 167, 0.45);
+  box-shadow: 0 0 0 2px rgba(218, 197, 167, 0.1);
+}
+
+.sml-app[data-ui-theme="foundry"] .sml-tag-chip.is-active {
+  background: rgba(91, 75, 56, 0.92);
+  border-color: rgba(218, 197, 167, 0.55);
+  color: var(--color-light-1, #f0f0e0);
+}
+
+.sml-app[data-ui-theme="foundry"] .sml-filter-empty,
+.sml-app[data-ui-theme="foundry"] .sml-profile-details summary {
+  color: rgba(240, 240, 224, 0.74);
+}
+
+.sml-app[data-ui-theme="foundry"] .sml-profile-details summary:hover,
+.sml-app[data-ui-theme="foundry"] .sml-profile-details summary:focus,
+.sml-app[data-ui-theme="foundry"] .sml-detail-group.is-enable .sml-detail-label {
+  color: #d7c2a0;
+}
+
+.sml-app[data-ui-theme="foundry"] .sml-detail-group.is-disable .sml-detail-label {
+  color: rgba(240, 240, 224, 0.7);
+}
+
+.sml-app[data-ui-theme="foundry"] .sml-detail-group.is-missing .sml-detail-label {
+  color: #e0c28f;
+}
+
+.sml-app[data-ui-theme="foundry"] .sml-detail-group ul {
+  color: rgba(240, 240, 224, 0.9);
 }
 
 @media (max-width: 820px) {

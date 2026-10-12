@@ -29,8 +29,50 @@ function createProfile(overrides = {}) {
     scope: overrides.scope ?? __test__.PROFILE_SCOPES.WORLD,
     moduleIds: overrides.moduleIds ?? ["module-a"],
     createdAt: overrides.createdAt ?? "2024-01-01T00:00:00.000Z",
-    updatedAt: overrides.updatedAt ?? "2024-01-02T00:00:00.000Z"
+    updatedAt: overrides.updatedAt ?? "2024-01-02T00:00:00.000Z",
+    auto: overrides.auto
   }, overrides.scope ?? __test__.PROFILE_SCOPES.WORLD);
+}
+
+function createSnapshot(id, createdAt, tags = [__test__.AUTO_SNAPSHOT_TAG]) {
+  return createProfile({ id, name: `Snapshot ${id}`, tags, createdAt, updatedAt: createdAt, auto: true });
+}
+
+function getAutoSnapshots() {
+  return __test__.getProfilesForScope(__test__.PROFILE_SCOPES.WORLD).profiles.filter((profile) => profile.auto === true);
+}
+
+function createFilterHtml(profileIds, tags) {
+  const chips = tags.map((tag) => {
+    const chip = Object.assign(createButton({ tag }), { attributes: {}, classes: new Set() });
+    chip.classList = { toggle: (token, force) => (force ? chip.classes.add(token) : chip.classes.delete(token)) };
+    chip.setAttribute = (name, value) => {
+      chip.attributes[name] = value;
+    };
+    return chip;
+  });
+  const cards = profileIds.map((profileId) => ({ dataset: { profileId }, hidden: false }));
+  const search = Object.assign(createButton(), { value: "" });
+  const details = Object.assign(createButton({ profileId: profileIds[0] }), { open: false });
+  const empty = { hidden: true };
+  const root = {
+    dataset: {},
+    querySelector(selector) {
+      return {
+        '[data-action="filter-search"]': search,
+        ".sml-filter-empty": empty
+      }[selector] ?? null;
+    },
+    querySelectorAll(selector) {
+      return {
+        ".sml-profile-card": cards,
+        '[data-action="filter-tag"]': chips,
+        ".sml-profile-details": [details]
+      }[selector] ?? [];
+    }
+  };
+
+  return { html: [root], cards, chips, search, details, empty };
 }
 
 function createManagerHtml() {
@@ -124,8 +166,8 @@ test("registers settings, menu, keybinding, and ready API", async () => {
 
   await env.hooks.trigger("ready");
   const api = env.game.modules.get(__test__.MODULE_ID).api;
-  assert.equal(typeof api.openManager, "function");
-  assert.equal(typeof api.getProfiles, "function");
+  assert.deepEqual(Object.keys(api).sort(), ["apply", "compare", "getProfiles", "openManager", "saveCurrent"]);
+  assert.equal(Object.values(api).every((entry) => typeof entry === "function"), true);
 
   const manager = api.openManager();
   assert.equal(manager.renderCalls.at(-1), true);
@@ -659,4 +701,255 @@ test("manager listener abort and error branches are handled", async () => {
   await flushPromises();
   assert.equal(env.state.notifications.error.at(-1), "import failed invalid import");
   assert.equal(controls.importFile.value, "");
+});
+test("auto snapshot helpers keep the newest three and turn into regular profiles on edit", () => {
+  const profiles = [
+    createProfile({ id: "r1", name: "Regular" }),
+    createSnapshot("s1", "2026-01-01T00:00:00.000Z"),
+    createSnapshot("s2", "2026-01-03T00:00:00.000Z"),
+    createSnapshot("s3", "2026-01-02T00:00:00.000Z"),
+    createSnapshot("s4", "2026-01-05T00:00:00.000Z"),
+    createSnapshot("s5", "2026-01-04T00:00:00.000Z")
+  ];
+  assert.equal(__test__.MAX_AUTO_SNAPSHOTS, 3);
+  assert.deepEqual(__test__.pruneAutoSnapshots(profiles).map((profile) => profile.id), ["r1", "s2", "s4", "s5"]);
+  assert.deepEqual(__test__.pruneAutoSnapshots(profiles, 1).map((profile) => profile.id), ["r1", "s4"]);
+
+  // Equal timestamps: the later list entry is the newer snapshot.
+  const tied = ["t1", "t2", "t3", "t4"].map((id) => createSnapshot(id, "2026-01-01T00:00:00.000Z"));
+  assert.deepEqual(__test__.pruneAutoSnapshots(tied).map((profile) => profile.id), ["t2", "t3", "t4"]);
+
+  assert.equal(__test__.normalizeProfile({ name: "Flag", auto: true }).auto, true);
+  assert.equal("auto" in __test__.normalizeProfile({ name: "Plain", auto: "yes" }), false);
+
+  const regular = __test__.asRegularProfile(createSnapshot("s9", "2026-01-01T00:00:00.000Z", ["auto", "keep"]));
+  assert.equal("auto" in regular, false);
+  assert.deepEqual(regular.tags, ["keep"]);
+  const plain = createProfile();
+  assert.equal(__test__.asRegularProfile(plain), plain);
+
+  const sorted = __test__.sortProfilesForDisplay([
+    createSnapshot("old", "2026-01-01T00:00:00.000Z"),
+    createProfile({ id: "z", name: "Zeta" }),
+    createSnapshot("new", "2026-02-01T00:00:00.000Z"),
+    createProfile({ id: "a", name: "alpha" })
+  ]);
+  assert.deepEqual(sorted.map((profile) => profile.id), ["a", "z", "new", "old"]);
+
+  assert.equal(typeof __test__.formatSnapshotDate(new Date("2026-10-12T10:00:00.000Z")), "string");
+  env.state.lang = "not a locale!";
+  assert.equal(__test__.formatSnapshotDate(new Date("2026-10-12T10:00:00.000Z")), "2026-10-12T10:00:00.000Z");
+});
+
+test("applying a profile saves an undo snapshot first and keeps at most three", async () => {
+  const prep = createProfile({ id: "prep", name: "Prep", moduleIds: ["module-b"] });
+  const live = createProfile({ id: "live", name: "Live", moduleIds: ["module-a", "module-c"] });
+  setStore(__test__.WORLD_PROFILES_SETTING, [prep, live]);
+
+  assert.equal(await __test__.applyProfile(prep), true);
+  assert.deepEqual(env.state.settingWrites.map((entry) => entry.moduleId === "core" ? "core" : entry.key), [__test__.WORLD_PROFILES_SETTING, "core"]);
+
+  let snapshots = getAutoSnapshots();
+  assert.equal(snapshots.length, 1);
+  assert.deepEqual(snapshots[0].moduleIds, ["module-a", "module-c", __test__.MODULE_ID]);
+  assert.deepEqual(snapshots[0].tags, [__test__.AUTO_SNAPSHOT_TAG]);
+  assert.equal(snapshots[0].scope, __test__.PROFILE_SCOPES.WORLD);
+  assert.match(snapshots[0].name, /^Before apply \(.+\)$/);
+  assert.equal(snapshots[0].description, "Before Prep");
+  assert.equal(env.state.notifications.info.includes(`snapshot ${snapshots[0].name}`), true);
+
+  // Undo: applying the snapshot restores the old state and stores the next snapshot.
+  assert.equal(await __test__.applyProfile(snapshots[0]), true);
+  assert.deepEqual(env.state.settingsValues.get("core.moduleConfiguration"), {
+    "module-a": true,
+    "module-c": true,
+    "sephrals-module-loadouts": true
+  });
+  assert.equal(getAutoSnapshots().length, 2);
+
+  for (const profile of [prep, live, prep, live]) assert.equal(await __test__.applyProfile(profile), true);
+  snapshots = getAutoSnapshots();
+  assert.equal(snapshots.length, __test__.MAX_AUTO_SNAPSHOTS);
+  assert.deepEqual(__test__.getProfilesForScope(__test__.PROFILE_SCOPES.WORLD).profiles
+    .filter((profile) => profile.auto !== true)
+    .map((profile) => profile.id)
+    .sort(), ["live", "prep"]);
+
+  // No change and a cancelled preflight leave the snapshots alone.
+  const writeCount = env.state.settingWrites.length;
+  assert.equal(await __test__.applyProfile(live), false);
+  env.state.confirmResult = false;
+  assert.equal(await __test__.applyProfile(createProfile({ id: "warn", name: "Warn", moduleIds: ["missing-module"] })), false);
+  assert.equal(env.state.settingWrites.length, writeCount);
+});
+
+test("manager template hides zero badges and lists module changes in a details element", () => {
+  const template = readFileSync(new URL(modulePath("templates/loadouts-manager.html")), "utf8");
+  const metaStart = template.indexOf('<div class="sml-profile-meta">');
+  const meta = template.slice(metaStart, template.indexOf("</div>", metaStart));
+  const badgeLines = meta.split(/\r?\n/).filter((line) => line.includes('class="sml-badge'));
+  assert.equal(badgeLines.length, 8);
+  assert.equal(badgeLines.every((line) => /^\s*\{\{#if \w+\}\}<span class="sml-badge[^>]*>\{\{\w+\}\}<\/span>\{\{\/if\}\}$/.test(line)), true);
+  assert.match(template, /<details class="sml-profile-details" data-profile-id="\{\{id\}\}"/);
+  assert.match(template, /data-action="filter-search"/);
+  assert.match(template, /data-action="filter-tag"/);
+
+  const presented = __test__.presentProfile(createProfile({ moduleIds: ["module-a", "module-b", "missing-module"] }));
+  assert.equal(presented.hasModuleDetails, true);
+  assert.deepEqual(presented.enableList, ["Beta"]);
+  assert.deepEqual(presented.disableList, ["Gamma"]);
+  assert.deepEqual(presented.missingList, ["missing-module"]);
+  assert.equal(presented.isAuto, false);
+
+  const matching = __test__.presentProfile(createProfile({ moduleIds: ["module-a", "module-c"] }));
+  assert.equal(matching.hasModuleDetails, false);
+  assert.equal(matching.toEnableCount, 0);
+  assert.equal(__test__.presentProfile(createSnapshot("s1", "2026-01-01T00:00:00.000Z")).isAuto, true);
+
+  const strings = __test__.getManagerTemplateStrings({ worldName: "World", currentActiveCount: 1, worldCount: 1, globalCount: 0 });
+  for (const key of ["searchPlaceholder", "filterEmpty", "moduleDetails", "detailsEnable", "detailsDisable", "detailsMissing", "autoBadge", "autoHint"]) {
+    assert.equal(typeof strings[key], "string", key);
+  }
+});
+
+test("profile filter matches name, description and tags and the manager keeps it while open", () => {
+  const beta = createProfile({ name: "Beta Live", description: "Session night", tags: ["live"] });
+  assert.equal(__test__.profileMatchesFilter(beta, {}), true);
+  assert.equal(__test__.profileMatchesFilter(beta, { search: "  NIGHT " }), true);
+  assert.equal(__test__.profileMatchesFilter(beta, { search: "liv" }), true);
+  assert.equal(__test__.profileMatchesFilter(beta, { search: "prep" }), false);
+  assert.equal(__test__.profileMatchesFilter(beta, { tag: "LIVE" }), true);
+  assert.equal(__test__.profileMatchesFilter(beta, { tag: "live", search: "alpha" }), false);
+  assert.equal(__test__.profileMatchesFilter(beta, { tag: "prep" }), false);
+
+  setStore(__test__.WORLD_PROFILES_SETTING, [
+    createProfile({ id: "p-alpha", name: "Alpha Prep", tags: ["Prep"], moduleIds: ["module-a"] }),
+    createProfile({ id: "p-beta", name: "Beta Live", description: "Session night", tags: ["live"], moduleIds: ["module-b"] }),
+    createProfile({ id: "p-gamma", name: "Gamma", tags: ["prep", "debug"], moduleIds: ["module-c"] })
+  ]);
+  const manager = new __test__.SMLLoadoutsManager();
+  const data = manager.getData();
+  assert.deepEqual(data.tagFilters.map((entry) => entry.value), ["debug", "live", "Prep"]);
+  assert.equal(data.tagFilters.some((entry) => entry.active), false);
+
+  const { html, cards, chips, search, details, empty } = createFilterHtml(["p-alpha", "p-beta", "p-gamma"], ["debug", "live", "Prep"]);
+  manager.activateListeners(html);
+  const hiddenStates = () => cards.map((card) => card.hidden);
+  assert.deepEqual(hiddenStates(), [false, false, false]);
+
+  search.value = "SESSION";
+  search.dispatch("input");
+  assert.deepEqual(hiddenStates(), [true, false, true]);
+
+  search.value = "";
+  search.dispatch("input");
+  chips[2].click();
+  assert.deepEqual(hiddenStates(), [false, true, false]);
+  assert.equal(chips[2].classes.has("is-active"), true);
+  assert.equal(chips[2].attributes["aria-pressed"], "true");
+  assert.equal(chips[0].attributes["aria-pressed"], "false");
+
+  search.value = "gam";
+  search.dispatch("input");
+  assert.deepEqual(hiddenStates(), [true, true, false]);
+  assert.equal(empty.hidden, true);
+
+  search.value = "nothing";
+  search.dispatch("input");
+  assert.deepEqual(hiddenStates(), [true, true, true]);
+  assert.equal(empty.hidden, false);
+
+  // A re-render starts from the stored filter.
+  const rerendered = manager.getData();
+  assert.equal(rerendered.filterSearch, "nothing");
+  assert.equal(rerendered.tagFilters.find((entry) => entry.value === "Prep").active, true);
+
+  chips[2].click();
+  assert.equal(chips[2].classes.has("is-active"), false);
+
+  details.open = true;
+  details.dispatch("toggle");
+  assert.equal(manager.getData().profiles.find((profile) => profile.id === "p-alpha").detailsOpen, true);
+  details.open = false;
+  details.dispatch("toggle");
+  assert.equal(manager.getData().profiles.find((profile) => profile.id === "p-alpha").detailsOpen, false);
+
+  // A tag filter whose last profile is gone falls back to no tag.
+  chips[0].click();
+  setStore(__test__.WORLD_PROFILES_SETTING, [createProfile({ id: "p-beta", name: "Beta Live", tags: ["live"] })]);
+  assert.equal(manager.getData().tagFilters.some((entry) => entry.active), false);
+});
+
+test("API compare, saveCurrent and apply follow the manager's rules", async () => {
+  await env.hooks.trigger("ready");
+  const api = env.game.modules.get(__test__.MODULE_ID).api;
+
+  setStore(__test__.WORLD_PROFILES_SETTING, [
+    createProfile({ id: "w-prep", name: "Prep", moduleIds: ["module-b"] }),
+    createProfile({ id: "w-warn", name: "Warn", moduleIds: ["module-c", "missing-module"] })
+  ]);
+  setStore(__test__.GLOBAL_PROFILES_SETTING, [
+    createProfile({ id: "g-prep", name: "prep", scope: __test__.PROFILE_SCOPES.GLOBAL, moduleIds: ["module-a", "missing-module"] })
+  ]);
+
+  // Names match without case, the world profile wins over the installation one.
+  assert.deepEqual(api.compare("PREP"), { toEnable: ["module-b"], toDisable: ["module-a", "module-c"], missing: [] });
+  assert.deepEqual(api.compare("g-prep"), { toEnable: [], toDisable: ["module-c"], missing: ["missing-module"] });
+  assert.deepEqual(api.compare({ id: "w-warn" }).missing, ["missing-module"]);
+  assert.equal(api.compare("nope"), null);
+  assert.equal(env.state.notifications.warn.at(-1), "not found nope");
+
+  env.state.userCanManage = false;
+  assert.equal(await api.saveCurrent("Session"), null);
+  assert.equal(env.state.notifications.error.at(-1), "permission required");
+  assert.equal(await api.apply("Prep"), false);
+  assert.equal(env.state.notifications.error.at(-1), "permission required");
+  env.state.userCanManage = true;
+
+  assert.equal(await api.saveCurrent("   "), null);
+  assert.equal(env.state.notifications.warn.at(-1), "name required");
+
+  const saved = await api.saveCurrent("Session", { description: "Tonight", tags: "live, prep" });
+  assert.equal(saved.scope, __test__.PROFILE_SCOPES.WORLD);
+  assert.equal(saved.description, "Tonight");
+  assert.deepEqual(saved.tags, ["live", "prep"]);
+  assert.deepEqual(saved.moduleIds, ["module-a", "module-c", __test__.MODULE_ID]);
+  assert.equal(env.state.notifications.info.at(-1), "saved Session");
+
+  const installation = await api.saveCurrent("session", { scope: "global", tags: ["one"] });
+  assert.equal(installation.scope, __test__.PROFILE_SCOPES.GLOBAL);
+  assert.notEqual(installation.id, saved.id);
+
+  const replaced = await api.saveCurrent("SESSION");
+  assert.equal(replaced.id, saved.id);
+  assert.equal(replaced.createdAt, saved.createdAt);
+  assert.equal(__test__.getProfilesForScope(__test__.PROFILE_SCOPES.WORLD).profiles
+    .filter((profile) => profile.name.toLowerCase() === "session").length, 1);
+
+  // apply() always asks by default and lists the real switch.
+  env.state.dialogV2Result = false;
+  assert.equal(await api.apply("Prep"), false);
+  assert.equal(env.state.dialogV2Calls.length, 1);
+  assert.match(env.state.dialogV2Calls[0].content, /Enable:.*Beta/s);
+  assert.match(env.state.dialogV2Calls[0].content, /Disable:.*Alpha.*Gamma/s);
+  assert.equal(env.state.settingWrites.some((entry) => entry.moduleId === "core"), false);
+
+  env.state.dialogV2Result = true;
+  assert.equal(await api.apply("w-prep"), true);
+  assert.deepEqual(env.state.settingsValues.get("core.moduleConfiguration"), {
+    "module-b": true,
+    "sephrals-module-loadouts": true
+  });
+  assert.equal(getAutoSnapshots().length, 1);
+
+  // confirm: false skips every dialog, also the preflight warning.
+  env.state.confirmResult = false;
+  env.state.lastConfirmOptions = null;
+  assert.equal(await api.apply("Warn", { confirm: false }), true);
+  assert.equal(env.state.dialogV2Calls.length, 2);
+  assert.equal(env.state.lastConfirmOptions, null);
+  assert.equal(env.state.notifications.warn.at(-1), "missing missing-module");
+
+  assert.equal(await api.apply("unknown"), false);
+  assert.equal(env.state.notifications.warn.at(-1), "not found unknown");
 });

@@ -54,14 +54,28 @@
     {{/unless}}
 
     {{#if hasProfiles}}
+    <section class="sml-filter-bar">
+      <input type="search" class="sml-filter-search" data-action="filter-search" value="{{filterSearch}}" placeholder="{{strings.searchPlaceholder}}" aria-label="{{strings.searchLabel}}">
+      {{#if tagFilters.length}}
+      <div class="sml-tag-chips" role="group" aria-label="{{strings.tagFilterLabel}}">
+        {{#each tagFilters}}
+        <button type="button" class="sml-tag-chip{{#if active}} is-active{{/if}}" data-action="filter-tag" data-tag="{{value}}" aria-pressed="{{#if active}}true{{else}}false{{/if}}">{{value}}</button>
+        {{/each}}
+      </div>
+      {{/if}}
+    </section>
+    <p class="notes sml-filter-empty" hidden>{{strings.filterEmpty}}</p>
     <section class="sml-profile-list flexcol">
       {{#each profiles}}
-      <article class="sml-profile-card">
+      <article class="sml-profile-card" data-profile-id="{{id}}">
         <header class="sml-profile-head">
           <div class="sml-profile-main">
             <div class="sml-profile-title-row">
               <h3>{{name}}</h3>
               <span class="sml-badge sml-badge-scope">{{scopeLabel}}</span>
+              {{#if isAuto}}
+              <span class="sml-badge sml-badge-auto" title="{{../strings.autoHint}}"><i class="fa-solid fa-clock-rotate-left"></i> {{../strings.autoBadge}}</span>
+              {{/if}}
             </div>
             {{#if description}}
             <p class="notes sml-profile-description">{{description}}</p>
@@ -70,15 +84,40 @@
             <p class="sml-tags">{{tagsLabel}}</p>
             {{/if}}
             <div class="sml-profile-meta">
-              <span class="sml-badge">{{modulesBadge}}</span>
-              <span class="sml-badge sml-badge-positive" title="{{matchingTitles}}">{{matchesBadge}}</span>
-              <span class="sml-badge sml-badge-info" title="{{enableTitles}}">{{enableBadge}}</span>
-              <span class="sml-badge sml-badge-muted" title="{{disableTitles}}">{{disableBadge}}</span>
-              <span class="sml-badge sml-badge-warning" title="{{missingTitles}}">{{missingBadge}}</span>
-              <span class="sml-badge sml-badge-info" title="{{autoEnableTitles}}">{{autoEnableBadge}}</span>
-              <span class="sml-badge sml-badge-warning" title="{{warningTitles}}">{{warningBadge}}</span>
-              <span class="sml-badge sml-badge-danger" title="{{blockingTitles}}">{{blockingBadge}}</span>
+              {{#if moduleCount}}<span class="sml-badge">{{modulesBadge}}</span>{{/if}}
+              {{#if matchesCount}}<span class="sml-badge sml-badge-positive" title="{{matchingTitles}}">{{matchesBadge}}</span>{{/if}}
+              {{#if toEnableCount}}<span class="sml-badge sml-badge-info" title="{{enableTitles}}">{{enableBadge}}</span>{{/if}}
+              {{#if toDisableCount}}<span class="sml-badge sml-badge-muted" title="{{disableTitles}}">{{disableBadge}}</span>{{/if}}
+              {{#if missingCount}}<span class="sml-badge sml-badge-warning" title="{{missingTitles}}">{{missingBadge}}</span>{{/if}}
+              {{#if autoEnableCount}}<span class="sml-badge sml-badge-info" title="{{autoEnableTitles}}">{{autoEnableBadge}}</span>{{/if}}
+              {{#if warningCount}}<span class="sml-badge sml-badge-warning" title="{{warningTitles}}">{{warningBadge}}</span>{{/if}}
+              {{#if blockingCount}}<span class="sml-badge sml-badge-danger" title="{{blockingTitles}}">{{blockingBadge}}</span>{{/if}}
             </div>
+            {{#if hasModuleDetails}}
+            <details class="sml-profile-details" data-profile-id="{{id}}" {{#if detailsOpen}}open{{/if}}>
+              <summary>{{../strings.moduleDetails}}</summary>
+              <div class="sml-detail-groups">
+                {{#if enableList.length}}
+                <div class="sml-detail-group is-enable">
+                  <span class="sml-detail-label">{{../strings.detailsEnable}}</span>
+                  <ul>{{#each enableList}}<li>{{this}}</li>{{/each}}</ul>
+                </div>
+                {{/if}}
+                {{#if disableList.length}}
+                <div class="sml-detail-group is-disable">
+                  <span class="sml-detail-label">{{../strings.detailsDisable}}</span>
+                  <ul>{{#each disableList}}<li>{{this}}</li>{{/each}}</ul>
+                </div>
+                {{/if}}
+                {{#if missingList.length}}
+                <div class="sml-detail-group is-missing">
+                  <span class="sml-detail-label">{{../strings.detailsMissing}}</span>
+                  <ul>{{#each missingList}}<li>{{this}}</li>{{/each}}</ul>
+                </div>
+                {{/if}}
+              </div>
+            </details>
+            {{/if}}
             <footer class="sml-profile-foot">
               <span>{{updatedAtText}}</span>
             </footer>

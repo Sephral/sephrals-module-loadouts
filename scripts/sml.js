@@ -15,6 +15,15 @@ const UI_THEMES = Object.freeze({
   SIGNATURE: "signature",
   FOUNDRY: "foundry"
 });
+const AUTO_SNAPSHOT_TAG = "auto";
+const MAX_AUTO_SNAPSHOTS = 3;
+// "warnings" is the manager button (ask only when the preflight found something),
+// "always" and "never" belong to the API's confirm option.
+const CONFIRM_MODES = Object.freeze({
+  WARNINGS: "warnings",
+  ALWAYS: "always",
+  NEVER: "never"
+});
 const MODULE_TRANSLATION_CACHE = new Map();
 let MODULE_TRANSLATION_LOAD = null;
 
@@ -99,12 +108,7 @@ Hooks.once("init", () => {
 Hooks.once("ready", () => {
   void ensureModuleTranslationsLoaded();
   const module = game.modules.get(MODULE_ID);
-  if (module) {
-    module.api = {
-      openManager,
-      getProfiles: getAllProfiles
-    };
-  }
+  if (module) module.api = createApi();
 });
 
 function defaultStore() {
@@ -348,7 +352,9 @@ function normalizeProfile(profile, fallbackScope = PROFILE_SCOPES.WORLD) {
     scope: normalizedScope,
     moduleIds: uniqueModuleIds.sort(compareModuleIdsByTitle),
     createdAt,
-    updatedAt
+    updatedAt,
+    // Only automatic snapshots carry the flag, regular profiles leave it out.
+    ...(profile.auto === true ? { auto: true } : {})
   };
 }
 
@@ -392,7 +398,23 @@ function findProfileById(profileId) {
   return getAllProfiles().find((entry) => entry.id === profileId) ?? null;
 }
 
-function createCurrentProfile({ name, description = "", tags = [], scope = PROFILE_SCOPES.WORLD, id = null, createdAt = null } = {}) {
+// API lookup: id first, then the name without case. The same name can exist in both scopes,
+// the world profile wins then.
+function findProfile(idOrName) {
+  const key = idOrName && typeof idOrName === "object" ? idOrName.id ?? idOrName.name : idOrName;
+  const value = String(key ?? "").trim();
+  if (!value) return null;
+
+  const profiles = getAllProfiles();
+  const byId = profiles.find((entry) => entry.id === value);
+  if (byId) return byId;
+
+  const lowered = value.toLowerCase();
+  const byName = profiles.filter((entry) => entry.name.toLowerCase() === lowered);
+  return byName.find((entry) => entry.scope === PROFILE_SCOPES.WORLD) ?? byName[0] ?? null;
+}
+
+function createCurrentProfile({ name, description = "", tags = [], scope = PROFILE_SCOPES.WORLD, id = null, createdAt = null, auto = false } = {}) {
   const timestamp = new Date().toISOString();
   return normalizeProfile({
     id: id ?? foundry.utils.randomID(),
@@ -402,8 +424,76 @@ function createCurrentProfile({ name, description = "", tags = [], scope = PROFI
     scope,
     moduleIds: getCurrentActiveModuleIds(),
     createdAt: createdAt ?? timestamp,
-    updatedAt: timestamp
+    updatedAt: timestamp,
+    auto
   }, scope);
+}
+
+// Keeps the newest automatic snapshots. On equal timestamps the later list entry counts as newer.
+function pruneAutoSnapshots(profiles, limit = MAX_AUTO_SNAPSHOTS) {
+  const keep = new Set(profiles
+    .map((profile, index) => ({ profile, index }))
+    .filter(({ profile }) => profile.auto === true)
+    .sort((left, right) => String(right.profile.createdAt).localeCompare(String(left.profile.createdAt)) || right.index - left.index)
+    .slice(0, limit)
+    .map(({ profile }) => profile.id));
+  return profiles.filter((profile) => profile.auto !== true || keep.has(profile.id));
+}
+
+function formatSnapshotDate(date = new Date()) {
+  try {
+    return date.toLocaleString(getSortLanguage(), { dateStyle: "short", timeStyle: "medium" });
+  } catch (_error) {
+    return date.toISOString();
+  }
+}
+
+// Undo for "apply": the module state before the switch is stored as a world profile. Applying a
+// snapshot creates the next one, the cap keeps that chain at MAX_AUTO_SNAPSHOTS entries.
+async function saveAutoSnapshot(appliedProfile) {
+  const snapshot = createCurrentProfile({
+    name: localize("SML.Snapshot.Name", { date: formatSnapshotDate() }),
+    description: localize("SML.Snapshot.Description", { name: appliedProfile.name }),
+    tags: [AUTO_SNAPSHOT_TAG],
+    scope: PROFILE_SCOPES.WORLD,
+    auto: true
+  });
+  const store = getProfilesForScope(PROFILE_SCOPES.WORLD);
+  await saveProfilesForScope(PROFILE_SCOPES.WORLD, pruneAutoSnapshots([...store.profiles, snapshot]));
+  return snapshot;
+}
+
+// Editing or duplicating a snapshot turns it into a regular profile that is never pruned.
+function asRegularProfile(profile) {
+  if (profile?.auto !== true) return profile;
+  const { auto: _auto, ...regular } = profile;
+  return { ...regular, tags: (profile.tags ?? []).filter((tag) => tag !== AUTO_SNAPSHOT_TAG) };
+}
+
+// User profiles by name, automatic snapshots after them with the newest first.
+function sortProfilesForDisplay(profiles) {
+  const byName = (left, right) => left.name.localeCompare(right.name, getSortLanguage(), { sensitivity: "base" });
+  const byNewest = (left, right) => String(right.createdAt).localeCompare(String(left.createdAt));
+  return [
+    ...profiles.filter((profile) => profile.auto !== true).sort(byName),
+    ...profiles.filter((profile) => profile.auto === true).sort(byNewest)
+  ];
+}
+
+function collectProfileTags(profiles) {
+  const tags = new Map();
+  for (const tag of profiles.flatMap((profile) => profile.tags ?? [])) {
+    const key = tag.toLowerCase();
+    if (!tags.has(key)) tags.set(key, tag);
+  }
+  return Array.from(tags.values()).sort((left, right) => left.localeCompare(right, getSortLanguage(), { sensitivity: "base" }));
+}
+
+function profileMatchesFilter(profile, { search = "", tag = null } = {}) {
+  if (tag && !(profile.tags ?? []).some((entry) => entry.toLowerCase() === tag.toLowerCase())) return false;
+  const needle = String(search ?? "").trim().toLowerCase();
+  if (!needle) return true;
+  return [profile.name, profile.description, ...(profile.tags ?? [])].join("\n").toLowerCase().includes(needle);
 }
 
 function buildComparison(profile) {
@@ -556,6 +646,11 @@ function presentProfile(profile) {
     autoEnableTitles: Array.from(preflight.autoEnabledTitles).join(", ") || "-",
     warningTitles: [...preflight.warningDetails, ...preflight.compatibilityWarnings].join("\n") || "-",
     blockingTitles: preflight.blockingDependencies.join("\n") || "-",
+    isAuto: profile.auto === true,
+    hasModuleDetails: comparison.toEnable.length + comparison.toDisable.length + comparison.missing.length > 0,
+    enableList: comparison.toEnable.map(moduleTitle),
+    disableList: comparison.toDisable.map(moduleTitle),
+    missingList: comparison.missing.map(moduleTitle),
     updatedAtLabel,
     modulesBadge: localize("SML.Manager.ModulesBadge", { count: profile.moduleIds.length }),
     matchesBadge: localize("SML.Manager.MatchesBadge", { count: comparison.matches.length }),
@@ -590,7 +685,17 @@ function getManagerTemplateStrings({ worldName, currentActiveCount, worldCount, 
     duplicate: localize("SML.Actions.Duplicate"),
     delete: localize("SML.Actions.Delete"),
     emptyTitle: localize("SML.Manager.EmptyTitle"),
-    emptyBody: localize("SML.Manager.EmptyBody")
+    emptyBody: localize("SML.Manager.EmptyBody"),
+    searchLabel: localize("SML.Filter.SearchLabel"),
+    searchPlaceholder: localize("SML.Filter.SearchPlaceholder"),
+    tagFilterLabel: localize("SML.Filter.TagsLabel"),
+    filterEmpty: localize("SML.Filter.Empty"),
+    moduleDetails: localize("SML.Manager.Details.Summary"),
+    detailsEnable: localize("SML.Manager.Details.Enable"),
+    detailsDisable: localize("SML.Manager.Details.Disable"),
+    detailsMissing: localize("SML.Manager.Details.Missing"),
+    autoBadge: localize("SML.Manager.AutoBadge"),
+    autoHint: localize("SML.Manager.AutoHint", { count: MAX_AUTO_SNAPSHOTS })
   };
 }
 
@@ -606,7 +711,7 @@ function renderPreflightSection(label, items) {
   return `<section><p><strong>${label}</strong></p><ul>${entries}</ul></section>`;
 }
 
-async function confirmProfileApplication(profile, preflight) {
+function renderPreflightSections(preflight) {
   const parts = [];
   if (preflight.autoEnabledTitles.size) {
     parts.push(renderPreflightSection(localize("SML.Dialog.Preflight.AutoEnable"), Array.from(preflight.autoEnabledTitles)));
@@ -620,6 +725,11 @@ async function confirmProfileApplication(profile, preflight) {
   if (preflight.missingModules.length) {
     parts.push(renderPreflightSection(localize("SML.Dialog.Preflight.MissingModules"), preflight.missingModules.map(moduleTitle)));
   }
+  return parts;
+}
+
+async function confirmProfileApplication(profile, preflight) {
+  const parts = renderPreflightSections(preflight);
   if (!parts.length) return true;
 
   return Dialog.confirm({
@@ -628,10 +738,29 @@ async function confirmProfileApplication(profile, preflight) {
   });
 }
 
-async function applyProfile(profile) {
+// API confirmation: always asks and lists the real switch, dependencies included.
+async function confirmProfileChanges(profile, preflight, { enableIds, disableIds }) {
+  const parts = [
+    `<p>${localize("SML.Dialog.ConfirmApply.Snapshot")}</p>`,
+    renderPreflightSection(localize("SML.Dialog.ConfirmApply.Enable"), enableIds.map(moduleTitle)),
+    renderPreflightSection(localize("SML.Dialog.ConfirmApply.Disable"), disableIds.map(moduleTitle)),
+    ...renderPreflightSections(preflight)
+  ];
+
+  const confirmed = await foundry.applications.api.DialogV2.confirm({
+    window: { title: localize("SML.Dialog.Preflight.Title", { name: profile.name }) },
+    content: parts.join(""),
+    yes: { label: localize("SML.Actions.Apply"), icon: "fa-solid fa-bolt" },
+    modal: true,
+    rejectClose: false
+  });
+  return confirmed === true;
+}
+
+async function applyProfile(profile, { confirm = CONFIRM_MODES.WARNINGS } = {}) {
   if (!canManageModules()) {
     ui.notifications?.error(localize("SML.Notification.ManageModulesRequired"));
-    return;
+    return false;
   }
 
   const preflight = collectProfilePreflight(profile);
@@ -639,11 +768,8 @@ async function applyProfile(profile) {
     ui.notifications?.error(localize("SML.Notification.BlockingDependencies", {
       details: game.i18n.getListFormatter().format(preflight.blockingDependencies)
     }));
-    return;
+    return false;
   }
-
-  const confirmed = await confirmProfileApplication(profile, preflight);
-  if (!confirmed) return;
 
   const oldSettings = getCurrentModuleConfiguration();
   const newSettings = {};
@@ -651,18 +777,30 @@ async function applyProfile(profile) {
     if (game.modules.has(moduleId)) newSettings[moduleId] = true;
   }
 
-  const requiresReload = !equalModuleIdLists(
-    getEnabledModuleIdsFromConfiguration(oldSettings),
-    getEnabledModuleIdsFromConfiguration(newSettings)
-  );
-  if (!requiresReload) {
+  const oldIds = getEnabledModuleIdsFromConfiguration(oldSettings);
+  const newIds = getEnabledModuleIdsFromConfiguration(newSettings);
+  if (equalModuleIdLists(oldIds, newIds)) {
     ui.notifications?.info(localize("SML.Notification.NoChanges"));
-    return;
+    return false;
   }
 
+  let confirmed = true;
+  if (confirm === CONFIRM_MODES.ALWAYS) {
+    confirmed = await confirmProfileChanges(profile, preflight, {
+      enableIds: newIds.filter((id) => !oldIds.includes(id)),
+      disableIds: oldIds.filter((id) => !newIds.includes(id))
+    });
+  } else if (confirm !== CONFIRM_MODES.NEVER) {
+    confirmed = await confirmProfileApplication(profile, preflight);
+  }
+  if (!confirmed) return false;
+
+  // Saved before the reload prompt so a quick reload cannot skip it.
+  const snapshot = await saveAutoSnapshot(profile);
   foundry.applications.settings.SettingsConfig.reloadConfirm({ world: true });
   await game.settings.set("core", getModuleConfigurationSettingKey(), newSettings);
   ui.notifications?.info(localize("SML.Notification.ProfileApplied", { name: profile.name }));
+  ui.notifications?.info(localize("SML.Notification.SnapshotSaved", { name: snapshot.name }));
 
   if (preflight.autoEnabledTitles.size) {
     ui.notifications?.info(localize("SML.Notification.DependencyAutoEnabled", {
@@ -681,6 +819,72 @@ async function applyProfile(profile) {
       details: game.i18n.getListFormatter().format([...preflight.warningDetails, ...preflight.compatibilityWarnings])
     }));
   }
+
+  return true;
+}
+
+function findProfileOrWarn(idOrName) {
+  const profile = findProfile(idOrName);
+  if (!profile) {
+    const name = idOrName && typeof idOrName === "object" ? idOrName.name ?? idOrName.id : idOrName;
+    ui.notifications?.warn(localize("SML.Notification.ProfileNotFound", { name: String(name ?? "") }));
+  }
+  return profile;
+}
+
+// Macro entry point. confirm: false skips the dialog, blocking dependencies still stop the switch.
+async function apiApply(idOrName, { confirm = true } = {}) {
+  const profile = findProfileOrWarn(idOrName);
+  if (!profile) return false;
+  return applyProfile(profile, { confirm: confirm ? CONFIRM_MODES.ALWAYS : CONFIRM_MODES.NEVER });
+}
+
+// Same as the manager's save button, but a profile with the same name in that scope is replaced without asking.
+async function apiSaveCurrent(name, { scope = PROFILE_SCOPES.WORLD, description = "", tags = [] } = {}) {
+  if (!canManageModules()) {
+    ui.notifications?.error(localize("SML.Notification.ManageModulesRequired"));
+    return null;
+  }
+
+  const profileName = String(name ?? "").trim();
+  if (!profileName) {
+    ui.notifications?.warn(localize("SML.Notification.NameRequired"));
+    return null;
+  }
+
+  const targetScope = isGlobalScope(scope) ? PROFILE_SCOPES.GLOBAL : PROFILE_SCOPES.WORLD;
+  const existing = getProfilesForScope(targetScope).profiles
+    .find((profile) => profile.name.toLowerCase() === profileName.toLowerCase());
+  const profile = createCurrentProfile({
+    name: profileName,
+    description,
+    tags,
+    scope: targetScope,
+    id: existing?.id ?? null,
+    createdAt: existing?.createdAt ?? null
+  });
+
+  await upsertProfile(profile);
+  ui.notifications?.info(localize("SML.Notification.ProfileSaved", { name: profile.name }));
+  managerApp?.render(false);
+  return profile;
+}
+
+function apiCompare(idOrName) {
+  const profile = findProfileOrWarn(idOrName);
+  if (!profile) return null;
+  const { toEnable, toDisable, missing } = buildComparison(profile);
+  return { toEnable, toDisable, missing };
+}
+
+function createApi() {
+  return {
+    openManager,
+    getProfiles: getAllProfiles,
+    apply: apiApply,
+    saveCurrent: apiSaveCurrent,
+    compare: apiCompare
+  };
 }
 
 function exportProfiles() {
@@ -754,6 +958,11 @@ class SMLSettingsMenu extends FormApplication {
 }
 
 class SMLLoadoutsManager extends FormApplication {
+  // Filter and open details live on the instance, so they survive re-renders until the window closes.
+  #filter = { search: "", tag: null };
+  #openDetails = new Set();
+  #profiles = new Map();
+
   static get defaultOptions() {
     return foundry.utils.mergeObject(super.defaultOptions, {
       id: MODULE_ID,
@@ -775,9 +984,12 @@ class SMLLoadoutsManager extends FormApplication {
   }
 
   getData() {
-    const profiles = getAllProfiles()
-      .map(presentProfile)
-        .sort((left, right) => left.name.localeCompare(right.name, getSortLanguage(), { sensitivity: "base" }));
+    const profiles = sortProfilesForDisplay(getAllProfiles())
+      .map((profile) => ({ ...presentProfile(profile), detailsOpen: this.#openDetails.has(profile.id) }));
+    this.#profiles = new Map(profiles.map((profile) => [profile.id, profile]));
+
+    const tags = collectProfileTags(profiles);
+    if (this.#filter.tag && !tags.includes(this.#filter.tag)) this.#filter.tag = null;
     const uiTheme = getThemePreference();
     const currentActiveCount = getCurrentActiveModuleIds().length;
     const globalCount = getProfilesForScope(PROFILE_SCOPES.GLOBAL).profiles.length;
@@ -799,8 +1011,29 @@ class SMLLoadoutsManager extends FormApplication {
       globalCount,
       worldCount,
       loadoutCount: profiles.length,
+      filterSearch: this.#filter.search,
+      tagFilters: tags.map((tag) => ({ value: tag, active: tag === this.#filter.tag })),
       uiTheme
     };
+  }
+
+  #applyFilter(root) {
+    let visibleCount = 0;
+    for (const card of root.querySelectorAll(".sml-profile-card")) {
+      const profile = this.#profiles.get(card.dataset.profileId);
+      const visible = !profile || profileMatchesFilter(profile, this.#filter);
+      card.hidden = !visible;
+      if (visible) visibleCount += 1;
+    }
+
+    for (const chip of root.querySelectorAll('[data-action="filter-tag"]')) {
+      const active = chip.dataset.tag === this.#filter.tag;
+      chip.classList.toggle("is-active", active);
+      chip.setAttribute("aria-pressed", String(active));
+    }
+
+    const empty = root.querySelector(".sml-filter-empty");
+    if (empty) empty.hidden = visibleCount > 0 || this.#profiles.size === 0;
   }
 
   async _render(force, options) {
@@ -852,6 +1085,32 @@ class SMLLoadoutsManager extends FormApplication {
         void this.#onDuplicate(button.dataset.profileId);
       });
     }
+
+    // Filtering hides cards in place instead of re-rendering, so the search box keeps its focus.
+    const search = root.querySelector('[data-action="filter-search"]');
+    search?.addEventListener("input", () => {
+      this.#filter.search = search.value ?? "";
+      this.#applyFilter(root);
+    });
+    search?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") event.preventDefault();
+    });
+
+    for (const chip of root.querySelectorAll('[data-action="filter-tag"]')) {
+      chip.addEventListener("click", () => {
+        this.#filter.tag = this.#filter.tag === chip.dataset.tag ? null : chip.dataset.tag;
+        this.#applyFilter(root);
+      });
+    }
+
+    for (const details of root.querySelectorAll(".sml-profile-details")) {
+      details.addEventListener("toggle", () => {
+        if (details.open) this.#openDetails.add(details.dataset.profileId);
+        else this.#openDetails.delete(details.dataset.profileId);
+      });
+    }
+
+    this.#applyFilter(root);
   }
 
   async #promptProfileData(profile = null, duplicate = false) {
@@ -945,11 +1204,11 @@ class SMLLoadoutsManager extends FormApplication {
   async #onEdit(profileId) {
     const existing = findProfileById(profileId);
     if (!existing) return;
-    const result = await this.#promptProfileData(existing, false);
+    const result = await this.#promptProfileData(asRegularProfile(existing), false);
     if (!result) return;
 
     const updated = normalizeProfile({
-      ...existing,
+      ...asRegularProfile(existing),
       ...result,
       updatedAt: new Date().toISOString()
     }, result.scope);
@@ -963,11 +1222,11 @@ class SMLLoadoutsManager extends FormApplication {
   async #onDuplicate(profileId) {
     const source = findProfileById(profileId);
     if (!source) return;
-    const result = await this.#promptProfileData(source, true);
+    const result = await this.#promptProfileData(asRegularProfile(source), true);
     if (!result) return;
 
     const duplicated = normalizeProfile({
-      ...source,
+      ...asRegularProfile(source),
       id: foundry.utils.randomID(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -1032,6 +1291,9 @@ export const __test__ = {
   SUPPORTED_UI_LANGUAGES,
   PROFILE_SCOPES,
   UI_THEMES,
+  AUTO_SNAPSHOT_TAG,
+  MAX_AUTO_SNAPSHOTS,
+  CONFIRM_MODES,
   defaultStore,
   localize,
   getRegisteredSettingValue,
@@ -1067,7 +1329,15 @@ export const __test__ = {
   upsertProfile,
   removeProfile,
   findProfileById,
+  findProfile,
   createCurrentProfile,
+  pruneAutoSnapshots,
+  formatSnapshotDate,
+  saveAutoSnapshot,
+  asRegularProfile,
+  sortProfilesForDisplay,
+  collectProfileTags,
+  profileMatchesFilter,
   buildComparison,
   asTitleList,
   asTagList,
@@ -1077,7 +1347,12 @@ export const __test__ = {
   presentProfile,
   formatModuleList,
   confirmProfileApplication,
+  confirmProfileChanges,
   applyProfile,
+  apiApply,
+  apiSaveCurrent,
+  apiCompare,
+  createApi,
   exportProfiles,
   importProfilesFromFile,
   getManagerTemplateStrings,
