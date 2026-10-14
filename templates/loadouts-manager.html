@@ -27,7 +27,7 @@
         <span class="sml-panel-hint">{{strings.controlsHint}}</span>
       </div>
       <div class="sml-toolbar sml-toolbar-wide">
-        <button type="button" class="sml-inline-action is-primary" data-action="save-current">
+        <button type="button" class="sml-inline-action is-primary" data-action="save-current" {{#unless canManage}}disabled{{/unless}}>
           <i class="fa-solid fa-floppy-disk"></i>
           <span>{{strings.saveCurrent}}</span>
         </button>
@@ -35,7 +35,7 @@
           <i class="fa-solid fa-file-export"></i>
           <span>{{strings.export}}</span>
         </button>
-        <button type="button" class="sml-inline-action" data-action="import-profiles">
+        <button type="button" class="sml-inline-action" data-action="import-profiles" {{#unless canManage}}disabled{{/unless}}>
           <i class="fa-solid fa-file-import"></i>
           <span>{{strings.import}}</span>
         </button>

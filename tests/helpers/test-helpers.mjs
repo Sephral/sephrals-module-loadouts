@@ -161,6 +161,9 @@ export function createTestEnvironment() {
     confirmResult: true,
     dialogV2Result: true,
     dialogV2Calls: [],
+    dialogV2WaitResult: "ok",
+    dialogV2WaitCalls: [],
+    serverTime: null,
     fileText: "",
     randomIdCounter: 0,
     savedFiles: [],
@@ -264,6 +267,10 @@ export function createTestEnvironment() {
           async confirm(options) {
             state.dialogV2Calls.push(options);
             return state.dialogV2Result;
+          },
+          async wait(options) {
+            state.dialogV2WaitCalls.push(options);
+            return state.dialogV2WaitResult;
           }
         }
       },
@@ -330,8 +337,22 @@ export function createTestEnvironment() {
     modules: state.modules,
     world: state.world,
     user: {
+      id: "gm-user",
+      name: "Gamemaster",
+      isGM: true,
+      active: true,
       can(permission) {
         return permission === "SETTINGS_MODIFY" ? state.userCanManage : false;
+      }
+    },
+    users: {
+      getDesignatedUser(condition) {
+        return [game.user].find(condition) ?? null;
+      }
+    },
+    time: {
+      get serverTime() {
+        return state.serverTime;
       }
     }
   };
@@ -404,6 +425,11 @@ export function createTestEnvironment() {
       state.confirmResult = true;
       state.dialogV2Result = true;
       state.dialogV2Calls = [];
+      state.dialogV2WaitResult = "ok";
+      state.dialogV2WaitCalls = [];
+      state.serverTime = null;
+      game.user.isGM = true;
+      game.user.active = true;
       state.fileText = "";
       state.randomIdCounter = 0;
       state.savedFiles = [];

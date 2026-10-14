@@ -150,7 +150,14 @@ test.after(() => {
 
 test("registers settings, menu, keybinding, and ready API", async () => {
   await env.hooks.trigger("init");
-  assert.equal(env.state.registerCalls.length, 4);
+  assert.equal(env.state.registerCalls.length, 6);
+  const displaySetting = env.state.registerCalls.find((entry) => entry.key === __test__.CHECK_DISPLAY_SETTING);
+  assert.equal(displaySetting.data.scope, "world");
+  assert.equal(displaySetting.data.config, true);
+  assert.equal(displaySetting.data.default, __test__.CHECK_DISPLAY_MODES.PROBLEMS);
+  const markerSetting = env.state.registerCalls.find((entry) => entry.key === __test__.CHECK_MARKER_SETTING);
+  assert.equal(markerSetting.data.scope, "world");
+  assert.equal(markerSetting.data.config, false);
   const languageSetting = env.state.registerCalls.find((entry) => entry.key === __test__.UI_LANGUAGE_SETTING);
   assert.deepEqual(languageSetting.data.choices, {
     default: "Follow Foundry",
@@ -747,7 +754,7 @@ test("applying a profile saves an undo snapshot first and keeps at most three", 
   setStore(__test__.WORLD_PROFILES_SETTING, [prep, live]);
 
   assert.equal(await __test__.applyProfile(prep), true);
-  assert.deepEqual(env.state.settingWrites.map((entry) => entry.moduleId === "core" ? "core" : entry.key), [__test__.WORLD_PROFILES_SETTING, "core"]);
+  assert.deepEqual(env.state.settingWrites.map((entry) => entry.moduleId === "core" ? "core" : entry.key), [__test__.WORLD_PROFILES_SETTING, __test__.CHECK_MARKER_SETTING, "core"]);
 
   let snapshots = getAutoSnapshots();
   assert.equal(snapshots.length, 1);
@@ -952,4 +959,176 @@ test("API compare, saveCurrent and apply follow the manager's rules", async () =
 
   assert.equal(await api.apply("unknown"), false);
   assert.equal(env.state.notifications.warn.at(-1), "not found unknown");
+});
+
+test("names go into dialog content and notifications escaped", async () => {
+  const evil = "Evil <img src=x onerror=\"alert(1)\">";
+  assert.equal(__test__.localizeHtml("SML.Dialog.Delete.Content", { name: evil }), "Delete Evil &lt;img src=x onerror=&quot;alert(1)&quot;&gt;");
+  setStore(__test__.WORLD_PROFILES_SETTING, [createProfile({ id: "profile-1", name: evil })]);
+
+  const manager = new __test__.SMLLoadoutsManager();
+  manager.element = [createThemeHost()];
+  const { html, controls } = createManagerHtml();
+  manager.activateListeners(html);
+  env.state.confirmResult = true;
+  controls.deleteButton.click();
+  await flushPromises();
+  assert.equal(env.state.lastConfirmOptions.content.includes("<img"), false);
+  assert.equal(env.state.lastConfirmOptions.content.includes("&lt;img"), true);
+  assert.equal(env.state.notifications.info.at(-1).includes("<img"), false);
+
+  await __test__.apiSaveCurrent("<b>Bold</b>");
+  assert.equal(env.state.notifications.info.at(-1), "saved &lt;b&gt;Bold&lt;/b&gt;");
+});
+
+test("edit and duplicate refuse names that already exist in the target scope, empty names warn", async () => {
+  env.state.localizations.set("SML.Notification.NameTaken", "taken {name} {scope}");
+  setStore(__test__.WORLD_PROFILES_SETTING, [
+    createProfile({ id: "profile-1", name: "Original" }),
+    createProfile({ id: "profile-2", name: "Other" })
+  ]);
+  setStore(__test__.GLOBAL_PROFILES_SETTING, [createProfile({ id: "g1", name: "Installed", scope: __test__.PROFILE_SCOPES.GLOBAL })]);
+  assert.equal(__test__.findNameConflict("other", __test__.PROFILE_SCOPES.WORLD)?.id, "profile-2");
+  assert.equal(__test__.findNameConflict("Original", __test__.PROFILE_SCOPES.WORLD, "profile-1"), null);
+  assert.equal(__test__.findNameConflict("Other", __test__.PROFILE_SCOPES.GLOBAL), null);
+
+  const manager = new __test__.SMLLoadoutsManager();
+  manager.element = [createThemeHost()];
+  const { html, controls } = createManagerHtml();
+  manager.activateListeners(html);
+
+  // Edit onto another profile's name (other case) is refused
+  env.state.promptValues = { profileName: "OTHER", profileDescription: "", profileTags: "", profileScope: __test__.PROFILE_SCOPES.WORLD };
+  controls.editButton.click();
+  await flushPromises();
+  assert.equal(__test__.findProfileById("profile-1").name, "Original");
+  assert.equal(env.state.notifications.warn.at(-1), "taken Other World");
+
+  // Keeping the own name (other case) is fine, and so is a name that only exists in the other scope
+  env.state.promptValues = { profileName: "ORIGINAL", profileDescription: "", profileTags: "", profileScope: __test__.PROFILE_SCOPES.WORLD };
+  controls.editButton.click();
+  await flushPromises();
+  assert.equal(__test__.findProfileById("profile-1").name, "ORIGINAL");
+  env.state.promptValues = { profileName: "Installed", profileDescription: "", profileTags: "", profileScope: __test__.PROFILE_SCOPES.WORLD };
+  controls.duplicateButton.click();
+  await flushPromises();
+  assert.equal(__test__.getProfilesForScope(__test__.PROFILE_SCOPES.WORLD).profiles.some((entry) => entry.name === "Installed"), true);
+
+  // Duplicate onto an existing name in the target scope is refused
+  const count = __test__.getAllProfiles().length;
+  env.state.promptValues = { profileName: "installed", profileDescription: "", profileTags: "", profileScope: __test__.PROFILE_SCOPES.GLOBAL };
+  controls.duplicateButton.click();
+  await flushPromises();
+  assert.equal(__test__.getAllProfiles().length, count);
+  assert.equal(env.state.notifications.warn.at(-1), "taken Installed Installation");
+
+  // A submitted empty name warns, a closed dialog stays silent and is not rejected
+  const warnings = env.state.notifications.warn.length;
+  env.state.promptValues = { profileName: "   ", profileDescription: "", profileTags: "", profileScope: __test__.PROFILE_SCOPES.WORLD };
+  controls.saveCurrent.click();
+  await flushPromises();
+  assert.equal(env.state.notifications.warn.at(-1), "name required");
+  assert.equal(env.state.lastPromptOptions.rejectClose, false);
+  const originalPrompt = globalThis.Dialog.prompt;
+  globalThis.Dialog.prompt = async () => null;
+  try {
+    controls.editButton.click();
+    await flushPromises();
+  } finally {
+    globalThis.Dialog.prompt = originalPrompt;
+  }
+  assert.equal(env.state.notifications.warn.length, warnings + 1);
+});
+
+test("import keeps ids unique: id match wins, stored ids stay, ids of the other scope are replaced", async () => {
+  setStore(__test__.WORLD_PROFILES_SETTING, [
+    createProfile({ id: "w1", name: "First" }),
+    createProfile({ id: "w2", name: "Second" })
+  ]);
+  setStore(__test__.GLOBAL_PROFILES_SETTING, [createProfile({ id: "g1", name: "Global", scope: __test__.PROFILE_SCOPES.GLOBAL })]);
+  env.state.fileText = JSON.stringify({
+    profiles: [
+      // name of w1 with an unknown id: replaces w1 and keeps the id w1
+      { id: "new-id", name: "FIRST", scope: __test__.PROFILE_SCOPES.WORLD, moduleIds: ["module-b"] },
+      // id of w2: replaces w2 even though the name is new
+      { id: "w2", name: "Second Renamed", scope: __test__.PROFILE_SCOPES.WORLD, moduleIds: ["module-c"] },
+      // id of the world profile w1 in the installation scope: added with a fresh id
+      { id: "w1", name: "Cross", scope: __test__.PROFILE_SCOPES.GLOBAL, moduleIds: ["module-a"] }
+    ]
+  });
+  await __test__.importProfilesFromFile({ name: "ids.json" });
+  const world = __test__.getProfilesForScope(__test__.PROFILE_SCOPES.WORLD).profiles;
+  const global = __test__.getProfilesForScope(__test__.PROFILE_SCOPES.GLOBAL).profiles;
+  assert.deepEqual(world.map((entry) => `${entry.id}:${entry.name}`).sort(), ["w1:FIRST", "w2:Second Renamed"]);
+  const cross = global.find((entry) => entry.name === "Cross");
+  assert.notEqual(cross.id, "w1");
+  const ids = __test__.getAllProfiles().map((entry) => entry.id);
+  assert.equal(new Set(ids).size, ids.length);
+  assert.equal(env.state.notifications.info.at(-1), "imported 3 1 2");
+});
+
+test("players without the module permission get no manager, read-only users cannot save or import", async () => {
+  env.game.user.isGM = false;
+  env.state.userCanManage = false;
+  assert.equal(__test__.canOpenManager(), false);
+  assert.equal(__test__.openManager(), null);
+  assert.equal(env.state.notifications.error.at(-1), "permission required");
+  env.state.userCanManage = true;
+  assert.equal(__test__.canOpenManager(), true);
+  env.game.user.isGM = true;
+  env.state.userCanManage = false;
+  assert.equal(__test__.canOpenManager(), true);
+
+  const template = readFileSync(new URL(modulePath("templates/loadouts-manager.html")), "utf8");
+  assert.match(template, /data-action="save-current" \{\{#unless canManage\}\}disabled\{\{\/unless\}\}/);
+  assert.match(template, /data-action="import-profiles" \{\{#unless canManage\}\}disabled\{\{\/unless\}\}/);
+
+  const manager = new __test__.SMLLoadoutsManager();
+  manager.element = [createThemeHost()];
+  const { html, controls } = createManagerHtml();
+  manager.activateListeners(html);
+  env.state.promptValues = { profileName: "Denied", profileDescription: "", profileTags: "", profileScope: __test__.PROFILE_SCOPES.WORLD };
+  env.state.fileText = JSON.stringify({ profiles: [{ id: "x", name: "Denied Import", moduleIds: [] }] });
+  controls.saveCurrent.click();
+  controls.importFile.dispatch("change", { currentTarget: controls.importFile });
+  await flushPromises();
+  assert.equal(__test__.getAllProfiles().length, 0);
+  assert.equal(env.state.notifications.error.filter((entry) => entry === "permission required").length, 3);
+  assert.equal(controls.importFile.value, "");
+});
+
+test("an open manager re-renders when the world loadouts change elsewhere", async () => {
+  await env.hooks.trigger("init");
+  const setting = env.state.settingsRegistry.get(`${__test__.MODULE_ID}.${__test__.WORLD_PROFILES_SETTING}`);
+  assert.equal(typeof setting.onChange, "function");
+  const manager = __test__.openManager();
+  const renders = manager.renderCalls.length;
+  manager.rendered = false;
+  setting.onChange();
+  assert.equal(manager.renderCalls.length, renders);
+  manager.rendered = true;
+  setting.onChange();
+  assert.deepEqual(manager.renderCalls.slice(renders), [false]);
+  await manager.close();
+});
+
+test("editing a profile that another gamemaster deleted meanwhile does not bring it back", async () => {
+  setStore(__test__.WORLD_PROFILES_SETTING, [createProfile({ id: "profile-1", name: "Original" })]);
+  const manager = new __test__.SMLLoadoutsManager();
+  manager.element = [createThemeHost()];
+  const { html, controls } = createManagerHtml();
+  manager.activateListeners(html);
+  const originalPrompt = globalThis.Dialog.prompt;
+  globalThis.Dialog.prompt = async (options) => {
+    setStore(__test__.WORLD_PROFILES_SETTING, []);
+    return options.callback({ find: (selector) => ({ val: () => (selector.includes("profileName") ? "Renamed" : selector.includes("profileScope") ? "world" : "") }) });
+  };
+  try {
+    controls.editButton.click();
+    await flushPromises();
+  } finally {
+    globalThis.Dialog.prompt = originalPrompt;
+  }
+  assert.equal(__test__.getAllProfiles().length, 0);
+  assert.equal(env.state.notifications.warn.at(-1), "not found Original");
 });

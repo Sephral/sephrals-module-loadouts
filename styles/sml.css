@@ -683,3 +683,30 @@
     width: 100%;
   }
 }
+
+/* Result of the check after a restart (DialogV2, Foundry styling). */
+.sml-check-dialog .sml-check {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.sml-check-dialog .sml-check p {
+  margin: 0;
+}
+
+.sml-check-dialog .sml-check ul {
+  margin: 0.2rem 0 0;
+  padding-left: 1.25rem;
+}
+
+.sml-check-dialog .sml-check li {
+  overflow-wrap: anywhere;
+}
+
+.sml-check-dialog .sml-check-meta {
+  opacity: 0.8;
+  font-size: var(--font-size-12, 0.85em);
+}

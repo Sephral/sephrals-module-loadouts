@@ -14,6 +14,7 @@
 * **Switch with one click:** apply a loadout and exactly its modules are active.
 * **See before you switch:** every loadout shows which modules it would enable, disable or cannot find.
 * **Undo included:** before every switch your current setup is saved automatically. One click takes you back.
+* **Checked after the restart:** the next start tells you if a module of the loadout did not come up or threw errors, and offers to undo the switch right there.
 * **No broken worlds:** required dependencies are switched on for you, and missing ones stop the switch before anything breaks.
 * **One world or all of them:** keep a loadout in a single world or use it in every world of your installation.
 * **Stay organized:** tags, search, duplicates for variants and a JSON export to back up or share your loadouts.

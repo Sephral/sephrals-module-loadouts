@@ -26,15 +26,47 @@ const CONFIRM_MODES = Object.freeze({
 });
 const MODULE_TRANSLATION_CACHE = new Map();
 let MODULE_TRANSLATION_LOAD = null;
+// Check after the restart: applying a profile leaves a hidden marker, the next start compares it
+// with the modules that really loaded and reports errors those modules threw during startup.
+const CHECK_MARKER_SETTING = "pendingCheck";
+const CHECK_DISPLAY_SETTING = "checkResultDisplay";
+const CHECK_DISPLAY_MODES = Object.freeze({
+  ALWAYS: "always",
+  PROBLEMS: "problems"
+});
+const CHECK_MARKER_MAX_AGE_MS = 60 * 60 * 1000;
+// The marker uses the client clock of the applying user, the check the one of the running GM.
+// Those can be a few minutes apart.
+const CHECK_CLOCK_TOLERANCE_MS = 10 * 60 * 1000;
+// Other modules still run their own "ready" work, so the check waits a moment for late errors.
+const CHECK_DELAY_MS = 2000;
+const MAX_STARTUP_ERRORS = 200;
+const MAX_ERRORS_SHOWN_PER_MODULE = 5;
+const MAX_ERROR_DETAIL_LENGTH = 300;
+const MODULE_PATH_PATTERN = /\/modules\/([^/?#\s"'()]+)\//g;
 
 let managerApp = null;
+
+// Startup errors are collected from the moment this file loads, before "init". The capture stops
+// at "init" when no check is pending and otherwise once the check has run.
+const startupCapture = {
+  entries: [],
+  keys: new Set(),
+  seen: new WeakSet(),
+  stop: null
+};
+installStartupErrorCapture();
 
 Hooks.once("init", () => {
   game.settings.register(MODULE_ID, WORLD_PROFILES_SETTING, {
     scope: "world",
     config: false,
     type: Object,
-    default: defaultStore()
+    default: defaultStore(),
+    // Keeps an open manager current when another gamemaster saves, edits or deletes a world loadout.
+    onChange: () => {
+      if (managerApp?.rendered) managerApp.render(false);
+    }
   });
 
   game.settings.register(MODULE_ID, GLOBAL_PROFILES_SETTING, {
@@ -74,6 +106,29 @@ Hooks.once("init", () => {
     }
   });
 
+  game.settings.register(MODULE_ID, CHECK_DISPLAY_SETTING, {
+    scope: "world",
+    config: true,
+    type: String,
+    default: CHECK_DISPLAY_MODES.PROBLEMS,
+    name: localize("SML.Settings.CheckDisplay.Name"),
+    hint: localize("SML.Settings.CheckDisplay.Hint"),
+    choices: {
+      [CHECK_DISPLAY_MODES.PROBLEMS]: localize("SML.CheckDisplay.Problems"),
+      [CHECK_DISPLAY_MODES.ALWAYS]: localize("SML.CheckDisplay.Always")
+    }
+  });
+
+  game.settings.register(MODULE_ID, CHECK_MARKER_SETTING, {
+    scope: "world",
+    config: false,
+    type: Object,
+    default: {}
+  });
+
+  // Without a pending check there is nothing to attribute, so the capture ends right here.
+  if (!readCheckMarker()) stopStartupErrorCapture();
+
   game.settings.registerMenu(MODULE_ID, "openManager", {
     name: localize("SML.Settings.Menu.Name"),
     label: localize("SML.Settings.Menu.Label"),
@@ -109,6 +164,7 @@ Hooks.once("ready", () => {
   void ensureModuleTranslationsLoaded();
   const module = game.modules.get(MODULE_ID);
   if (module) module.api = createApi();
+  void runStartupCheck();
 });
 
 function defaultStore() {
@@ -131,6 +187,14 @@ function localize(key, data = null) {
   if (override) return data && Object.keys(data).length ? interpolateTemplate(override, data) : override;
   if (data && Object.keys(data).length) return game.i18n.format(key, data);
   return game.i18n.localize(key);
+}
+
+// For text that ends up as HTML (dialog content, notifications): the values are escaped,
+// so profile names or imported module ids show up literally and never run as markup.
+function localizeHtml(key, data = {}) {
+  const escape = globalThis.foundry?.utils?.escapeHTML ?? ((value) => String(value));
+  const escaped = Object.fromEntries(Object.entries(data ?? {}).map(([field, value]) => [field, escape(String(value ?? ""))]));
+  return localize(key, escaped);
 }
 
 function getRegisteredSettingValue(settingKey, fallback) {
@@ -251,7 +315,17 @@ function injectModuleManagementLauncher(app, html) {
   else header.append(button);
 }
 
+// Gamemasters may look at the loadouts even without the module permission (the manager shows a notice then),
+// players only with that permission, like the settings menu and the hotkey.
+function canOpenManager() {
+  return Boolean(game.user?.isGM) || canManageModules();
+}
+
 function openManager() {
+  if (!canOpenManager()) {
+    ui.notifications?.error(localize("SML.Notification.ManageModulesRequired"));
+    return null;
+  }
   if (!managerApp) managerApp = new SMLLoadoutsManager();
   managerApp.options ??= {};
   managerApp.options.title = localize("SML.Title");
@@ -394,6 +468,18 @@ async function removeProfile(profile) {
   await saveProfilesForScope(normalized.scope, store.profiles.filter((entry) => entry.id !== normalized.id));
 }
 
+// Names are unique per scope without case, like the replace check of the save button and the import.
+function findNameConflict(name, scope, exceptId = null) {
+  const lowered = String(name ?? "").trim().toLowerCase();
+  if (!lowered) return null;
+  return getProfilesForScope(scope).profiles
+    .find((profile) => profile.id !== exceptId && profile.name.toLowerCase() === lowered) ?? null;
+}
+
+function warnNameConflict(conflict) {
+  ui.notifications?.warn(localizeHtml("SML.Notification.NameTaken", { name: conflict.name, scope: scopeLabel(conflict.scope) }));
+}
+
 function findProfileById(profileId) {
   return getAllProfiles().find((entry) => entry.id === profileId) ?? null;
 }
@@ -527,7 +613,8 @@ function getModuleCompatibilityState(module) {
   if (!module) return { blocking: false, warning: false, label: "" };
   const availability = Number(module.availability ?? 0);
   const codes = CONST.PACKAGE_AVAILABILITY_CODES ?? {};
-  const blockingStates = new Set([codes.REQUIRES_CORE_DOWNGRADE, codes.REQUIRES_CORE_UPGRADE, codes.REQUIRES_SYSTEM, codes.REQUIRES_DEPENDENCY, codes.MISSING_SYSTEM, codes.MISSING_DEPENDENCY]);
+  // Every REQUIRES_* and MISSING_* code blocks (core upgrade stable/unstable/unknown, dependency update, ...).
+  const blockingStates = new Set(Object.entries(codes).filter(([key]) => /^(REQUIRES|MISSING)_/.test(key)).map(([, code]) => code));
   const warningStates = new Set([codes.UNVERIFIED_GENERATION, codes.UNVERIFIED_SYSTEM, codes.UNVERIFIED_BUILD]);
   return {
     blocking: blockingStates.has(availability) || Boolean(module.unavailable),
@@ -558,7 +645,8 @@ function resolveRequiredModules(moduleId, desiredIds, autoEnabledTitles, blockin
       continue;
     }
 
-    if (dependencyCompatibility.warning) {
+    // A module that already runs needs no warning: Foundry reported it at startup and nothing changes for it.
+    if (dependencyCompatibility.warning && !dependency.active) {
       compatibilityWarnings.push(`${dependency.title}: ${dependencyCompatibility.label || localize("SML.Manager.AvailabilityWarning")}`);
     }
 
@@ -602,7 +690,7 @@ function collectProfilePreflight(profile) {
     desiredIds.add(moduleId);
     const compatibility = getModuleCompatibilityState(module);
     if (compatibility.blocking) blockingDependencies.push(`${module.title}: ${compatibility.label || localize("SML.Manager.AvailabilityBlocked")}`);
-    else if (compatibility.warning) compatibilityWarnings.push(`${module.title}: ${compatibility.label || localize("SML.Manager.AvailabilityWarning")}`);
+    else if (compatibility.warning && !module.active) compatibilityWarnings.push(`${module.title}: ${compatibility.label || localize("SML.Manager.AvailabilityWarning")}`);
   }
 
   for (const moduleId of Array.from(desiredIds)) {
@@ -765,7 +853,7 @@ async function applyProfile(profile, { confirm = CONFIRM_MODES.WARNINGS } = {}) 
 
   const preflight = collectProfilePreflight(profile);
   if (preflight.blockingDependencies.length) {
-    ui.notifications?.error(localize("SML.Notification.BlockingDependencies", {
+    ui.notifications?.error(localizeHtml("SML.Notification.BlockingDependencies", {
       details: game.i18n.getListFormatter().format(preflight.blockingDependencies)
     }));
     return false;
@@ -795,27 +883,33 @@ async function applyProfile(profile, { confirm = CONFIRM_MODES.WARNINGS } = {}) 
   }
   if (!confirmed) return false;
 
-  // Saved before the reload prompt so a quick reload cannot skip it.
+  // Saved before the reload prompt so a quick reload cannot skip them.
   const snapshot = await saveAutoSnapshot(profile);
+  await saveCheckMarker(buildCheckMarker(profile, {
+    expectedIds: newIds,
+    snapshotId: snapshot.id,
+    appliedAt: Date.now(),
+    user: game.user
+  }));
   foundry.applications.settings.SettingsConfig.reloadConfirm({ world: true });
   await game.settings.set("core", getModuleConfigurationSettingKey(), newSettings);
-  ui.notifications?.info(localize("SML.Notification.ProfileApplied", { name: profile.name }));
-  ui.notifications?.info(localize("SML.Notification.SnapshotSaved", { name: snapshot.name }));
+  ui.notifications?.info(localizeHtml("SML.Notification.ProfileApplied", { name: profile.name }));
+  ui.notifications?.info(localizeHtml("SML.Notification.SnapshotSaved", { name: snapshot.name }));
 
   if (preflight.autoEnabledTitles.size) {
-    ui.notifications?.info(localize("SML.Notification.DependencyAutoEnabled", {
+    ui.notifications?.info(localizeHtml("SML.Notification.DependencyAutoEnabled", {
       modules: game.i18n.getListFormatter().format(Array.from(preflight.autoEnabledTitles))
     }));
   }
 
   if (preflight.missingModules.length) {
-    ui.notifications?.warn(localize("SML.Notification.MissingModules", {
+    ui.notifications?.warn(localizeHtml("SML.Notification.MissingModules", {
       modules: formatModuleList(preflight.missingModules)
     }));
   }
 
   if (preflight.warningDetails.length || preflight.compatibilityWarnings.length) {
-    ui.notifications?.warn(localize("SML.Notification.ApplyWarnings", {
+    ui.notifications?.warn(localizeHtml("SML.Notification.ApplyWarnings", {
       details: game.i18n.getListFormatter().format([...preflight.warningDetails, ...preflight.compatibilityWarnings])
     }));
   }
@@ -827,7 +921,7 @@ function findProfileOrWarn(idOrName) {
   const profile = findProfile(idOrName);
   if (!profile) {
     const name = idOrName && typeof idOrName === "object" ? idOrName.name ?? idOrName.id : idOrName;
-    ui.notifications?.warn(localize("SML.Notification.ProfileNotFound", { name: String(name ?? "") }));
+    ui.notifications?.warn(localizeHtml("SML.Notification.ProfileNotFound", { name: String(name ?? "") }));
   }
   return profile;
 }
@@ -865,7 +959,7 @@ async function apiSaveCurrent(name, { scope = PROFILE_SCOPES.WORLD, description 
   });
 
   await upsertProfile(profile);
-  ui.notifications?.info(localize("SML.Notification.ProfileSaved", { name: profile.name }));
+  ui.notifications?.info(localizeHtml("SML.Notification.ProfileSaved", { name: profile.name }));
   managerApp?.render(false);
   return profile;
 }
@@ -922,19 +1016,27 @@ async function importProfilesFromFile(file) {
   for (const imported of importedProfiles) {
     const scope = imported.scope ?? PROFILE_SCOPES.GLOBAL;
     const bucket = grouped[scope];
-    const index = bucket.findIndex((profile) => (profile.id === imported.id)
-      || (profile.name.toLowerCase() === imported.name.toLowerCase()));
+    // The same id wins over the same name, so a renamed profile replaces itself and not a namesake.
+    const byId = bucket.findIndex((profile) => profile.id === imported.id);
+    const index = byId >= 0
+      ? byId
+      : bucket.findIndex((profile) => profile.name.toLowerCase() === imported.name.toLowerCase());
 
     if (index >= 0) {
+      // The stored id stays, otherwise a name match could take over an id that another profile already has.
       bucket[index] = normalizeProfile({
         ...bucket[index],
         ...imported,
+        id: bucket[index].id,
         createdAt: bucket[index].createdAt ?? imported.createdAt,
         scope
       }, scope);
       replaced += 1;
     } else {
-      bucket.push(normalizeProfile(imported, scope));
+      // Ids are unique across both scopes, the manager and the API look profiles up by id.
+      const usedIds = new Set([...grouped[PROFILE_SCOPES.WORLD], ...grouped[PROFILE_SCOPES.GLOBAL]].map((profile) => profile.id));
+      const id = usedIds.has(imported.id) ? foundry.utils.randomID() : imported.id;
+      bucket.push(normalizeProfile({ ...imported, id }, scope));
       added += 1;
     }
   }
@@ -946,6 +1048,414 @@ async function importProfilesFromFile(file) {
     added,
     replaced
   }));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Check after the restart: startup error capture
+// ---------------------------------------------------------------------------------------------
+
+// Module ids in the order they appear, read from URLs such as ".../modules/<id>/scripts/main.js".
+function findModuleIdsInText(text) {
+  const ids = [];
+  for (const match of String(text ?? "").matchAll(MODULE_PATH_PATTERN)) {
+    let id = match[1];
+    try {
+      id = decodeURIComponent(id);
+    } catch (_error) {
+      // Keep the raw id.
+    }
+    if (!ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
+// The first module path in the first text that has one wins. For a stack that is the top frame.
+// This module's own frames never count: the capture code (console wrapper, listeners, error hook)
+// sits in every call site stack, and an error without any other module frame belongs to Foundry,
+// the system or the world, not to the loadout.
+function attributeModuleId(texts = []) {
+  for (const text of texts) {
+    const moduleId = findModuleIdsInText(text).find((id) => id !== MODULE_ID);
+    if (moduleId) return moduleId;
+  }
+  return null;
+}
+
+function isErrorLike(value) {
+  return value instanceof Error
+    || Boolean(value && typeof value === "object" && typeof value.message === "string" && typeof value.stack === "string");
+}
+
+// Stack and message of an error and its causes. Foundry wraps errors from hooks and keeps the
+// original as cause, so the module frame is often only in the cause's stack.
+function collectErrorTexts(error, depth = 0) {
+  if (typeof error === "string") return [error];
+  if (!error || typeof error !== "object" || depth > 4) return [];
+  const own = [error.stack, error.message, error.fileName].filter((value) => typeof value === "string" && value);
+  return [...own, ...collectErrorTexts(error.cause, depth + 1)];
+}
+
+function firstLine(value) {
+  const line = String(value ?? "").split(/\r?\n/).map((part) => part.trim()).find(Boolean) ?? "";
+  return line.length > MAX_ERROR_DETAIL_LENGTH ? `${line.slice(0, MAX_ERROR_DETAIL_LENGTH - 3)}...` : line;
+}
+
+// "%c" placeholders take a CSS string each, those arguments are no part of the message.
+function stripConsoleStyles(args = []) {
+  const [first, ...rest] = args;
+  if (typeof first !== "string" || !first.includes("%c")) return args;
+  const styleCount = first.match(/%c/g).length;
+  return [first.replace(/%c/g, ""), ...rest.slice(styleCount)];
+}
+
+// Drops the frames up to and including the run of this module's capture frames (console wrapper
+// and the helpers it calls) from a call site stack, so only the caller's frames remain.
+function stripOwnFrames(stack) {
+  const lines = String(stack ?? "").split(/\r?\n/);
+  const isOwn = (line) => line.includes(`/modules/${MODULE_ID}/`);
+  let lastOwn = lines.findIndex(isOwn);
+  if (lastOwn < 0) return lines.join("\n");
+  while (lastOwn + 1 < lines.length && isOwn(lines[lastOwn + 1])) lastOwn += 1;
+  return lines.slice(lastOwn + 1).join("\n");
+}
+
+function moduleFilePath(url) {
+  const match = /\/modules\/([^?#]+)/.exec(String(url ?? ""));
+  return match ? `modules/${match[1]}` : String(url ?? "");
+}
+
+function describeThrown(error, extraTexts = []) {
+  const moduleId = attributeModuleId([...collectErrorTexts(error), ...extraTexts]);
+  const detail = firstLine(isErrorLike(error) ? error.message : typeof error === "string" ? error : "");
+  if (!moduleId || !detail) return null;
+  return { moduleId, kind: "error", detail, error: isErrorLike(error) ? error : null };
+}
+
+function describeErrorEvent(event) {
+  const target = event?.target;
+  const tagName = String(target?.tagName ?? "").toUpperCase();
+  // Failed <script> and <link> loads only reach a capturing listener on window.
+  if (tagName === "SCRIPT" || tagName === "LINK") {
+    const url = target.src || target.href || "";
+    const moduleId = attributeModuleId([url]);
+    return moduleId ? { moduleId, kind: "load", detail: moduleFilePath(url) } : null;
+  }
+  // Other elements (images, audio) are no startup errors. Script errors arrive with window as target.
+  if (tagName) return null;
+  return describeThrown(event?.error ?? event?.message, [event?.filename]);
+}
+
+function describeRejection(event) {
+  return describeThrown(event?.reason);
+}
+
+function describeConsoleError(args = [], callStack = "") {
+  const values = stripConsoleStyles(Array.from(args));
+  const errors = values.filter(isErrorLike);
+  const strings = values.filter((value) => typeof value === "string");
+  const detail = firstLine(values
+    .map((value) => isErrorLike(value) ? value.message : typeof value === "string" ? value : "")
+    .filter(Boolean)
+    .join(" "));
+  const moduleId = attributeModuleId([
+    ...errors.flatMap((error) => collectErrorTexts(error)),
+    ...strings,
+    stripOwnFrames(callStack)
+  ]);
+  if (!moduleId || !detail) return null;
+  return { moduleId, kind: "error", detail, error: errors[0] ?? null };
+}
+
+// Script or stylesheet files of modules that answered with an error status. This also covers files
+// that failed before this module was loaded.
+function collectFailedModuleLoads(entries = []) {
+  return Array.from(entries ?? [])
+    .filter((entry) => Number(entry?.responseStatus) >= 400 && /\.(?:m?js|css)(?:[?#]|$)/i.test(String(entry?.name ?? "")))
+    .map((entry) => ({ moduleId: attributeModuleId([entry.name]), kind: "load", detail: moduleFilePath(entry.name) }))
+    .filter((entry) => entry.moduleId);
+}
+
+function recordStartupError(entry, log = startupCapture) {
+  if (!entry?.moduleId || !entry.detail) return false;
+  if (entry.error && typeof entry.error === "object") {
+    // Foundry logs a hook error and passes the same object to the "error" hook.
+    if (log.seen.has(entry.error)) return false;
+    log.seen.add(entry.error);
+  }
+  const key = `${entry.moduleId}|${entry.kind}|${entry.detail}`;
+  if (log.keys.has(key) || log.entries.length >= MAX_STARTUP_ERRORS) return false;
+  log.keys.add(key);
+  log.entries.push({ moduleId: entry.moduleId, kind: entry.kind, detail: entry.detail });
+  return true;
+}
+
+function recordSafely(describe, log) {
+  try {
+    recordStartupError(describe(), log);
+  } catch (_error) {
+    // The capture must never break the page or the original console call.
+  }
+}
+
+function installStartupErrorCapture({
+  target = globalThis.window,
+  consoleObject = globalThis.console,
+  hooks = globalThis.Hooks,
+  log = startupCapture
+} = {}) {
+  if (log.stop || typeof target?.addEventListener !== "function") return false;
+
+  const onError = (event) => recordSafely(() => describeErrorEvent(event), log);
+  const onRejection = (event) => recordSafely(() => describeRejection(event), log);
+  target.addEventListener("error", onError, true);
+  target.addEventListener("unhandledrejection", onRejection);
+
+  const originalError = consoleObject?.error;
+  const wrapper = typeof originalError === "function"
+    ? function smlStartupConsoleError(...args) {
+      // Taken here, directly in the wrapper, so the caller is the first frame below the own ones.
+      const callStack = new Error().stack;
+      recordSafely(() => describeConsoleError(args, callStack), log);
+      return originalError.apply(this, args);
+    }
+    : null;
+  if (wrapper) consoleObject.error = wrapper;
+
+  const hookId = typeof hooks?.on === "function"
+    ? hooks.on("error", (_location, error) => recordSafely(() => describeThrown(error), log))
+    : undefined;
+
+  log.stop = () => {
+    target.removeEventListener("error", onError, true);
+    target.removeEventListener("unhandledrejection", onRejection);
+    if (wrapper && consoleObject.error === wrapper) consoleObject.error = originalError;
+    if (hookId !== undefined) hooks?.off?.("error", hookId);
+    log.stop = null;
+  };
+  return true;
+}
+
+function stopStartupErrorCapture(log = startupCapture) {
+  log.stop?.();
+}
+
+// ---------------------------------------------------------------------------------------------
+// Check after the restart: marker and evaluation
+// ---------------------------------------------------------------------------------------------
+
+function buildCheckMarker(profile, { expectedIds = [], snapshotId = null, appliedAt = Date.now(), user = null } = {}) {
+  return {
+    profileId: profile.id,
+    profileName: profile.name,
+    expectedIds: Array.from(expectedIds),
+    // Titles for modules that are gone after the restart and cannot be looked up any more.
+    titles: Object.fromEntries(Array.from(expectedIds).map((id) => [id, moduleTitle(id)])),
+    snapshotId,
+    appliedAt,
+    userId: user?.id ?? null,
+    userName: user?.name ?? ""
+  };
+}
+
+function normalizeCheckMarker(value) {
+  if (!value || typeof value !== "object") return null;
+  const appliedAt = Number(value.appliedAt);
+  const expectedIds = Array.isArray(value.expectedIds)
+    ? Array.from(new Set(value.expectedIds.map((id) => String(id ?? "").trim()).filter(Boolean)))
+    : [];
+  if (!Number.isFinite(appliedAt) || !expectedIds.length) return null;
+  return {
+    profileId: String(value.profileId ?? ""),
+    profileName: String(value.profileName ?? ""),
+    expectedIds,
+    titles: value.titles && typeof value.titles === "object" ? { ...value.titles } : {},
+    snapshotId: value.snapshotId ? String(value.snapshotId) : null,
+    appliedAt,
+    userId: value.userId ? String(value.userId) : null,
+    userName: String(value.userName ?? "")
+  };
+}
+
+function isCheckMarkerPending(marker, now = Date.now(), maxAge = CHECK_MARKER_MAX_AGE_MS) {
+  if (!marker) return false;
+  const age = now - marker.appliedAt;
+  return age >= -CHECK_CLOCK_TOLERANCE_MS && age <= maxAge;
+}
+
+function readCheckMarker() {
+  return normalizeCheckMarker(getRegisteredSettingValue(CHECK_MARKER_SETTING, null));
+}
+
+async function saveCheckMarker(marker) {
+  await game.settings.set(MODULE_ID, CHECK_MARKER_SETTING, marker);
+}
+
+async function clearCheckMarker() {
+  try {
+    await game.settings.set(MODULE_ID, CHECK_MARKER_SETTING, {});
+    return true;
+  } catch (error) {
+    console.warn(`${MODULE_ID} |`, error);
+    return false;
+  }
+}
+
+function getCheckDisplayMode() {
+  const mode = getRegisteredSettingValue(CHECK_DISPLAY_SETTING, CHECK_DISPLAY_MODES.PROBLEMS);
+  return mode === CHECK_DISPLAY_MODES.ALWAYS ? CHECK_DISPLAY_MODES.ALWAYS : CHECK_DISPLAY_MODES.PROBLEMS;
+}
+
+// One client runs the check: the active GM among the users who may manage modules.
+function isCheckRunner() {
+  const user = game.user;
+  if (!user?.isGM || !canManageModules()) return false;
+  const designated = game.users?.getDesignatedUser?.((entry) => entry.active && entry.isGM && entry.can("SETTINGS_MODIFY"))
+    ?? game.users?.activeGM
+    ?? null;
+  return designated ? designated === user || designated.id === user.id : false;
+}
+
+function groupByModule(entries) {
+  const groups = new Map();
+  for (const entry of entries) {
+    if (!groups.has(entry.moduleId)) groups.set(entry.moduleId, []);
+    groups.get(entry.moduleId).push(entry.kind === "load" ? localize("SML.Check.LoadFailed", { file: entry.detail }) : entry.detail);
+  }
+  return Array.from(groups, ([moduleId, details]) => ({ moduleId, details }));
+}
+
+function evaluateStartupCheck(marker, { activeIds = [], installedIds = [], errors = [], packageIssues = {} } = {}) {
+  const expected = new Set(marker.expectedIds);
+  const active = new Set(activeIds);
+  const installed = new Set(installedIds);
+  const relevant = new Set([...expected, ...active]);
+
+  const notActive = marker.expectedIds
+    .filter((id) => !active.has(id))
+    .map((id) => ({ moduleId: id, installed: installed.has(id) }));
+  const unexpected = Array.from(active).filter((id) => !expected.has(id));
+  const startupErrors = groupByModule(errors.filter((entry) => relevant.has(entry.moduleId)));
+  const foundryErrors = groupByModule(Object.entries(packageIssues ?? {})
+    .filter(([id]) => relevant.has(id))
+    .flatMap(([moduleId, issue]) => (Array.isArray(issue?.error) ? issue.error : [])
+      .map((message) => ({ moduleId, detail: firstLine(message) }))
+      .filter((entry) => entry.detail)));
+
+  return {
+    expectedCount: expected.size,
+    notActive,
+    unexpected,
+    startupErrors,
+    foundryErrors,
+    ok: !notActive.length && !unexpected.length && !startupErrors.length && !foundryErrors.length
+  };
+}
+
+function checkModuleTitle(moduleId, marker) {
+  return game.modules.get(moduleId)?.title ?? marker?.titles?.[moduleId] ?? moduleId;
+}
+
+function formatCheckDate(timestamp) {
+  return formatSnapshotDate(new Date(timestamp));
+}
+
+function renderCheckErrorSection(label, groups, marker) {
+  if (!groups.length) return "";
+  const escape = foundry.utils.escapeHTML;
+  const items = groups.map(({ moduleId, details }) => {
+    const shown = details.slice(0, MAX_ERRORS_SHOWN_PER_MODULE).map((detail) => `<li>${escape(detail)}</li>`);
+    const hidden = details.length - MAX_ERRORS_SHOWN_PER_MODULE;
+    if (hidden > 0) shown.push(`<li>${escape(localize("SML.Check.MoreErrors", { count: hidden }))}</li>`);
+    return `<li><strong>${escape(checkModuleTitle(moduleId, marker))}</strong><ul>${shown.join("")}</ul></li>`;
+  });
+  return `<section><p><strong>${label}</strong></p><ul>${items.join("")}</ul></section>`;
+}
+
+function renderStartupCheckContent(marker, result, { canUndo = false, snapshotMissing = false } = {}) {
+  const escape = foundry.utils.escapeHTML;
+  const name = escape(marker.profileName);
+  const parts = [
+    `<p>${localize(result.ok ? "SML.Check.AllGood" : "SML.Check.Problems", { name, count: result.expectedCount })}</p>`,
+    `<p class="sml-check-meta">${localize("SML.Check.AppliedBy", { user: escape(marker.userName || "-"), date: escape(formatCheckDate(marker.appliedAt)) })}</p>`
+  ];
+
+  parts.push(renderPreflightSection(localize("SML.Check.NotActive"), result.notActive.map(({ moduleId, installed }) =>
+    `${checkModuleTitle(moduleId, marker)} (${localize(installed ? "SML.Check.ReasonDisabled" : "SML.Check.ReasonMissing")})`)));
+  parts.push(renderPreflightSection(localize("SML.Check.Unexpected"), result.unexpected.map((id) => checkModuleTitle(id, marker))));
+  parts.push(renderCheckErrorSection(localize("SML.Check.Errors"), result.startupErrors, marker));
+  parts.push(renderCheckErrorSection(localize("SML.Check.FoundryIssues"), result.foundryErrors, marker));
+
+  if (canUndo) parts.push(`<p class="sml-check-meta">${localize("SML.Check.UndoHint")}</p>`);
+  else if (snapshotMissing) parts.push(`<p class="sml-check-meta">${localize("SML.Check.UndoMissing")}</p>`);
+  return `<div class="sml-check">${parts.filter(Boolean).join("")}</div>`;
+}
+
+async function showStartupCheckDialog(marker, result) {
+  const snapshot = marker.snapshotId ? findProfileById(marker.snapshotId) : null;
+  const canUndo = Boolean(snapshot) && canManageModules();
+  const buttons = [{ action: "ok", label: localize("SML.Check.Ok"), icon: "fa-solid fa-check", default: true }];
+  if (canUndo) buttons.push({ action: "undo", label: localize("SML.Check.Undo"), icon: "fa-solid fa-rotate-left" });
+
+  const choice = await foundry.applications.api.DialogV2.wait({
+    window: { title: localize("SML.Check.Title", { name: marker.profileName }), icon: "fa-solid fa-layer-group" },
+    classes: ["sml-check-dialog"],
+    position: { width: 520 },
+    content: renderStartupCheckContent(marker, result, { canUndo, snapshotMissing: !snapshot }),
+    buttons,
+    rejectClose: false
+  });
+  if (choice !== "undo") return false;
+
+  // Looked up again, the snapshot could have been deleted while the dialog was open.
+  const current = findProfileById(marker.snapshotId);
+  if (!current) {
+    ui.notifications?.warn(localize("SML.Check.UndoMissing"));
+    return false;
+  }
+  return applyProfile(current);
+}
+
+function getActiveModuleIds() {
+  return Array.from(game.modules?.values?.() ?? []).filter((module) => module?.active).map((module) => module.id);
+}
+
+async function runStartupCheck({ delay = CHECK_DELAY_MS } = {}) {
+  try {
+    const marker = readCheckMarker();
+    if (!marker || !isCheckRunner()) return null;
+    if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+
+    // Another GM client may have taken the marker while this one waited.
+    const current = readCheckMarker();
+    if (!current || current.appliedAt !== marker.appliedAt || !isCheckRunner()) return null;
+    if (!(await clearCheckMarker())) return null;
+    // Client clock on purpose: game.time.serverTime is no epoch time in v13.
+    if (!isCheckMarkerPending(current, Date.now())) return null;
+
+    for (const entry of collectFailedModuleLoads(globalThis.performance?.getEntriesByType?.("resource"))) {
+      recordStartupError(entry);
+    }
+    const result = evaluateStartupCheck(current, {
+      activeIds: getActiveModuleIds(),
+      installedIds: Array.from(game.modules?.keys?.() ?? []),
+      errors: startupCapture.entries,
+      packageIssues: game.issues?.packageCompatibilityIssues ?? {}
+    });
+
+    await ensureModuleTranslationsLoaded();
+    if (result.ok && getCheckDisplayMode() !== CHECK_DISPLAY_MODES.ALWAYS) {
+      ui.notifications?.info(localizeHtml("SML.Check.AllGood", { name: current.profileName, count: result.expectedCount }));
+    } else {
+      // Not awaited: the capture ends now, the dialog may stay open as long as the GM likes.
+      showStartupCheckDialog(current, result).catch((error) => console.warn(`${MODULE_ID} |`, error));
+    }
+    return result;
+  } catch (error) {
+    console.warn(`${MODULE_ID} |`, error);
+    return null;
+  } finally {
+    stopStartupErrorCapture();
+  }
 }
 
 class SMLSettingsMenu extends FormApplication {
@@ -1153,6 +1663,8 @@ class SMLLoadoutsManager extends FormApplication {
         </form>
       `,
       label: localize("SML.Dialog.Profile.Submit"),
+      // Closing the window is a cancel, not an error.
+      rejectClose: false,
       callback: (dialogHtml) => ({
         name: dialogHtml.find('input[name="profileName"]').val()?.trim(),
         description: dialogHtml.find('input[name="profileDescription"]').val()?.trim() ?? "",
@@ -1161,8 +1673,13 @@ class SMLLoadoutsManager extends FormApplication {
       })
     });
 
-    const name = String(result?.name ?? "").trim();
-    if (!name) return null;
+    // null: the dialog was closed. A submitted empty name gets a hint instead of silently doing nothing.
+    if (!result) return null;
+    const name = String(result.name ?? "").trim();
+    if (!name) {
+      ui.notifications?.warn(localize("SML.Notification.NameRequired"));
+      return null;
+    }
 
     return {
       name,
@@ -1173,6 +1690,10 @@ class SMLLoadoutsManager extends FormApplication {
   }
 
   async #onSaveCurrent() {
+    if (!canManageModules()) {
+      ui.notifications?.error(localize("SML.Notification.ManageModulesRequired"));
+      return;
+    }
     const result = await this.#promptProfileData();
     if (!result) return;
 
@@ -1181,7 +1702,7 @@ class SMLLoadoutsManager extends FormApplication {
     if (existing) {
       const confirmed = await Dialog.confirm({
         title: localize("SML.Dialog.Replace.Title"),
-        content: `<p>${localize("SML.Dialog.Replace.Content", { name: existing.name })}</p>`
+        content: `<p>${localizeHtml("SML.Dialog.Replace.Content", { name: existing.name })}</p>`
       });
       if (!confirmed) return;
     }
@@ -1197,7 +1718,7 @@ class SMLLoadoutsManager extends FormApplication {
 
     if (existing && existing.scope !== profile.scope) await removeProfile(existing);
     await upsertProfile(profile);
-    ui.notifications?.info(localize("SML.Notification.ProfileSaved", { name: profile.name }));
+    ui.notifications?.info(localizeHtml("SML.Notification.ProfileSaved", { name: profile.name }));
     this.render(false);
   }
 
@@ -1206,6 +1727,17 @@ class SMLLoadoutsManager extends FormApplication {
     if (!existing) return;
     const result = await this.#promptProfileData(asRegularProfile(existing), false);
     if (!result) return;
+    // Another gamemaster may have deleted it while the dialog was open, saving must not bring it back.
+    if (!findProfileById(profileId)) {
+      ui.notifications?.warn(localizeHtml("SML.Notification.ProfileNotFound", { name: existing.name }));
+      this.render(false);
+      return;
+    }
+    const conflict = findNameConflict(result.name, result.scope, existing.id);
+    if (conflict) {
+      warnNameConflict(conflict);
+      return;
+    }
 
     const updated = normalizeProfile({
       ...asRegularProfile(existing),
@@ -1215,7 +1747,7 @@ class SMLLoadoutsManager extends FormApplication {
 
     if (existing.scope !== updated.scope) await removeProfile(existing);
     await upsertProfile(updated);
-    ui.notifications?.info(localize("SML.Notification.ProfileSaved", { name: updated.name }));
+    ui.notifications?.info(localizeHtml("SML.Notification.ProfileSaved", { name: updated.name }));
     this.render(false);
   }
 
@@ -1224,6 +1756,11 @@ class SMLLoadoutsManager extends FormApplication {
     if (!source) return;
     const result = await this.#promptProfileData(asRegularProfile(source), true);
     if (!result) return;
+    const conflict = findNameConflict(result.name, result.scope);
+    if (conflict) {
+      warnNameConflict(conflict);
+      return;
+    }
 
     const duplicated = normalizeProfile({
       ...asRegularProfile(source),
@@ -1234,7 +1771,7 @@ class SMLLoadoutsManager extends FormApplication {
     }, result.scope);
 
     await upsertProfile(duplicated);
-    ui.notifications?.info(localize("SML.Notification.ProfileSaved", { name: duplicated.name }));
+    ui.notifications?.info(localizeHtml("SML.Notification.ProfileSaved", { name: duplicated.name }));
     this.render(false);
   }
 
@@ -1251,12 +1788,12 @@ class SMLLoadoutsManager extends FormApplication {
 
     const confirmed = await Dialog.confirm({
       title: localize("SML.Dialog.Delete.Title"),
-      content: `<p>${localize("SML.Dialog.Delete.Content", { name: profile.name })}</p>`
+      content: `<p>${localizeHtml("SML.Dialog.Delete.Content", { name: profile.name })}</p>`
     });
     if (!confirmed) return;
 
     await removeProfile(profile);
-    ui.notifications?.info(localize("SML.Notification.ProfileDeleted", { name: profile.name }));
+    ui.notifications?.info(localizeHtml("SML.Notification.ProfileDeleted", { name: profile.name }));
     this.render(false);
   }
 
@@ -1264,12 +1801,17 @@ class SMLLoadoutsManager extends FormApplication {
     const input = event.currentTarget;
     const file = input?.files?.[0];
     if (!file) return;
+    if (!canManageModules()) {
+      ui.notifications?.error(localize("SML.Notification.ManageModulesRequired"));
+      input.value = "";
+      return;
+    }
 
     try {
       await importProfilesFromFile(file);
       this.render(false);
     } catch (error) {
-      ui.notifications?.error(localize("SML.Notification.ImportFailed", {
+      ui.notifications?.error(localizeHtml("SML.Notification.ImportFailed", {
         message: error?.message ?? error
       }));
     } finally {
@@ -1294,8 +1836,16 @@ export const __test__ = {
   AUTO_SNAPSHOT_TAG,
   MAX_AUTO_SNAPSHOTS,
   CONFIRM_MODES,
+  CHECK_MARKER_SETTING,
+  CHECK_DISPLAY_SETTING,
+  CHECK_DISPLAY_MODES,
+  CHECK_MARKER_MAX_AGE_MS,
+  MAX_STARTUP_ERRORS,
+  MAX_ERRORS_SHOWN_PER_MODULE,
+  startupCapture,
   defaultStore,
   localize,
+  localizeHtml,
   getRegisteredSettingValue,
   normalizeUiLanguage,
   getPreferredLanguage,
@@ -1311,6 +1861,7 @@ export const __test__ = {
   injectModuleManagementLauncher,
   openManager,
   canManageModules,
+  canOpenManager,
   getModuleConfigurationSettingKey,
   getCurrentModuleConfiguration,
   getEnabledModuleIdsFromConfiguration,
@@ -1328,6 +1879,7 @@ export const __test__ = {
   saveProfilesForScope,
   upsertProfile,
   removeProfile,
+  findNameConflict,
   findProfileById,
   findProfile,
   createCurrentProfile,
@@ -1356,6 +1908,32 @@ export const __test__ = {
   exportProfiles,
   importProfilesFromFile,
   getManagerTemplateStrings,
+  findModuleIdsInText,
+  attributeModuleId,
+  collectErrorTexts,
+  firstLine,
+  stripConsoleStyles,
+  stripOwnFrames,
+  moduleFilePath,
+  describeThrown,
+  describeErrorEvent,
+  describeRejection,
+  describeConsoleError,
+  collectFailedModuleLoads,
+  recordStartupError,
+  installStartupErrorCapture,
+  stopStartupErrorCapture,
+  buildCheckMarker,
+  normalizeCheckMarker,
+  isCheckMarkerPending,
+  readCheckMarker,
+  clearCheckMarker,
+  getCheckDisplayMode,
+  isCheckRunner,
+  evaluateStartupCheck,
+  renderStartupCheckContent,
+  showStartupCheckDialog,
+  runStartupCheck,
   SMLSettingsMenu,
   SMLLoadoutsManager
 };
