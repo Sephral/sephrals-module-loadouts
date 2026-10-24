@@ -16,6 +16,7 @@
 }
 
 .sml-window .window-content {
+  padding: 0;
   background:
     radial-gradient(circle at top left, rgba(214, 138, 77, 0.22), transparent 28%),
     linear-gradient(180deg, #fbf6ea 0%, #f3ecde 100%);
@@ -383,6 +384,17 @@
   font-size: 0.8rem;
 }
 
+/* Foundry's dark inputs do not fit the paper look of the Signature design. */
+.sml-app[data-ui-theme="signature"] .sml-filter-search {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(73, 49, 32, 0.18);
+  color: var(--sml-ink);
+}
+
+.sml-app[data-ui-theme="signature"] .sml-filter-search::placeholder {
+  color: var(--sml-muted);
+}
+
 .sml-tag-chips {
   display: flex;
   flex-wrap: wrap;
@@ -707,6 +719,278 @@
 }
 
 .sml-check-dialog .sml-check-meta {
+  opacity: 0.8;
+  font-size: var(--font-size-12, 0.85em);
+}
+
+/* Banner for a running bug hunt and buttons inside banners. */
+.sml-banner-info {
+  background: var(--sml-blue-soft);
+  border: 1px solid rgba(49, 95, 156, 0.24);
+}
+
+.sml-banner .sml-inline-action {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+.sml-badge-settings {
+  background: rgba(181, 81, 45, 0.08);
+  color: #7a4a2c;
+  cursor: help;
+}
+
+.sml-detail-group.is-pinned .sml-detail-label,
+.sml-detail-group.is-changed .sml-detail-label,
+.sml-detail-group.is-settings .sml-detail-label {
+  color: var(--sml-blue);
+}
+
+.sml-detail-group.is-libraries .sml-detail-label {
+  color: #656565;
+}
+
+.sml-detail-group a {
+  color: var(--sml-accent);
+  text-decoration: underline;
+}
+
+.sml-detail-note {
+  color: var(--sml-muted);
+  font-size: 0.7rem;
+}
+
+.sml-app .sml-icon-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  min-height: 0;
+  height: auto;
+  margin: 0 0 0 0.2rem;
+  padding: 0 0.2rem;
+  border: none;
+  background: none;
+  box-shadow: none;
+  color: var(--sml-muted);
+  font-size: 0.7rem;
+  line-height: 1;
+}
+
+.sml-app .sml-icon-action:hover,
+.sml-app .sml-icon-action:focus {
+  color: var(--sml-accent);
+  box-shadow: none;
+}
+
+/* Bug hunt panel. */
+.sml-hunt-window .sml-app {
+  gap: 0.45rem;
+}
+
+.sml-hunt .sml-panel {
+  flex: 0 0 auto;
+}
+
+.sml-hunt p {
+  margin: 0;
+}
+
+.sml-hunt-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 10px;
+}
+
+.sml-hunt-status i {
+  margin-top: 0.15rem;
+  font-size: 1.05rem;
+}
+
+.sml-hunt-status.is-seen {
+  background: var(--sml-rose-soft);
+  color: var(--sml-rose);
+}
+
+.sml-hunt-status.is-clear {
+  background: var(--sml-green-soft);
+  color: var(--sml-green);
+}
+
+.sml-hunt-status code {
+  display: inline;
+  padding: 0 0.2rem;
+  border: none;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.6);
+  color: inherit;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: 0.74rem;
+}
+
+.sml-app[data-ui-theme="foundry"] .sml-hunt-status code {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.sml-hunt-detail {
+  overflow-wrap: anywhere;
+  font-size: 0.74rem;
+}
+
+.sml-hunt-question {
+  margin-top: 0.2rem;
+}
+
+.sml-hunt-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.sml-hunt-buttons .sml-inline-action {
+  flex: 1 1 10rem;
+}
+
+.sml-hunt-suggestion {
+  font-size: 0.74rem;
+  color: var(--sml-muted);
+}
+
+.sml-hunt-stop {
+  align-self: flex-start;
+}
+
+.sml-hunt-result-text {
+  font-weight: 700;
+}
+
+.sml-hunt-result.is-found {
+  border-color: rgba(45, 119, 83, 0.32);
+}
+
+.sml-hunt-lists details {
+  font-size: 0.78rem;
+}
+
+.sml-hunt-lists summary {
+  cursor: pointer;
+  color: var(--sml-muted);
+}
+
+.sml-hunt-lists ul,
+.sml-hunt-lists ol {
+  margin: 0.2rem 0 0.3rem;
+  padding-left: 1.2rem;
+  max-height: 12rem;
+  overflow-y: auto;
+}
+
+.sml-app[data-ui-theme="foundry"] .sml-hunt-status.is-seen {
+  background: rgba(140, 62, 71, 0.28);
+  color: #e0b8bf;
+}
+
+.sml-app[data-ui-theme="foundry"] .sml-hunt-status.is-clear {
+  background: rgba(45, 119, 83, 0.24);
+  color: #b8dabd;
+}
+
+.sml-app[data-ui-theme="foundry"] .sml-banner-info {
+  background: rgba(49, 95, 156, 0.22);
+}
+
+.sml-app[data-ui-theme="foundry"] .sml-badge-settings,
+.sml-app[data-ui-theme="foundry"] .sml-detail-group a,
+.sml-app[data-ui-theme="foundry"] .sml-detail-group.is-pinned .sml-detail-label,
+.sml-app[data-ui-theme="foundry"] .sml-detail-group.is-changed .sml-detail-label,
+.sml-app[data-ui-theme="foundry"] .sml-detail-group.is-settings .sml-detail-label {
+  color: #d7c2a0;
+}
+
+.sml-app[data-ui-theme="foundry"] .sml-detail-group.is-libraries .sml-detail-label,
+.sml-app[data-ui-theme="foundry"] .sml-detail-note,
+.sml-app[data-ui-theme="foundry"] .sml-icon-action,
+.sml-app[data-ui-theme="foundry"] .sml-hunt-suggestion,
+.sml-app[data-ui-theme="foundry"] .sml-hunt-lists summary {
+  color: rgba(240, 240, 224, 0.7);
+}
+
+/* Dialogs of the module (DialogV2, Foundry styling). */
+.sml-dialog .sml-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  max-height: 65vh;
+  overflow-y: auto;
+}
+
+.sml-dialog .sml-dialog-body p,
+.sml-dialog .sml-dialog-body ul {
+  margin: 0;
+}
+
+.sml-dialog .sml-dialog-body ul {
+  padding-left: 1.25rem;
+}
+
+.sml-dialog .sml-dialog-body li {
+  overflow-wrap: anywhere;
+}
+
+.sml-dialog .sml-dialog-note {
+  opacity: 0.8;
+  font-size: var(--font-size-12, 0.85em);
+}
+
+.sml-dialog .sml-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.sml-dialog fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0;
+}
+
+.sml-dialog .sml-hunt-keep-list,
+.sml-dialog .sml-pinned-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.sml-dialog .sml-pinned-row[hidden] {
+  display: none;
+}
+
+.sml-dialog .sml-import-list {
+  list-style: none;
+  padding-left: 0;
+}
+
+.sml-dialog .sml-import-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--color-border, rgba(0, 0, 0, 0.12));
+}
+
+.sml-dialog .sml-import-row select {
+  flex: 0 0 9rem;
+}
+
+.sml-dialog .sml-setting-change {
+  display: block;
   opacity: 0.8;
   font-size: var(--font-size-12, 0.85em);
 }

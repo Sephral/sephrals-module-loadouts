@@ -1,0 +1,87 @@
+<div class="sml-app sml-hunt flexcol">
+  {{#if hunt}}
+  <section class="sml-hero sml-hunt-head">
+    <div class="sml-heading-block">
+      <h2>{{strings.title}}</h2>
+      <p class="notes sml-summary">{{hunt.stepLabel}}</p>
+    </div>
+  </section>
+
+  {{#if hunt.done}}
+  <section class="sml-panel sml-hunt-result{{#if hunt.found}} is-found{{/if}}">
+    <p class="sml-hunt-result-text">{{hunt.resultText}}</p>
+    {{#if hunt.found}}
+    {{#if hunt.culpritVersion}}<p class="notes">{{hunt.culpritTitle}} {{hunt.culpritVersion}}</p>{{/if}}
+    {{#if hunt.dependentsText}}<p class="notes">{{hunt.dependentsText}}</p>{{/if}}
+    {{/if}}
+    <div class="sml-hunt-buttons">
+      {{#if hunt.found}}
+      <button type="button" class="sml-inline-action is-primary" data-action="restoreWithout" {{#if busy}}disabled{{/if}}>
+        <i class="fa-solid fa-ban"></i>
+        <span>{{strings.restoreWithout}}</span>
+      </button>
+      {{/if}}
+      <button type="button" class="sml-inline-action{{#unless hunt.found}} is-primary{{/unless}}" data-action="restoreAll" {{#if busy}}disabled{{/if}}>
+        <i class="fa-solid fa-rotate-left"></i>
+        <span>{{strings.restoreAll}}</span>
+      </button>
+      <button type="button" class="sml-inline-action" data-action="keepModules" {{#if busy}}disabled{{/if}}>
+        <i class="fa-solid fa-check"></i>
+        <span>{{strings.keep}}</span>
+      </button>
+    </div>
+  </section>
+  {{else}}
+  <section class="sml-panel sml-hunt-step">
+    <p>{{hunt.stepText}}</p>
+    {{#if hunt.errorMode}}
+    <div class="sml-hunt-status{{#if hunt.seen}} is-seen{{else}} is-clear{{/if}}">
+      <i class="fa-solid {{#if hunt.seen}}fa-triangle-exclamation{{else}}fa-circle-check{{/if}}"></i>
+      <div>
+        <strong>{{hunt.seenText}}</strong>
+        <p class="notes">{{strings.patternLabel}} <code>{{hunt.pattern}}</code></p>
+        {{#if hunt.seenDetail}}<p class="notes sml-hunt-detail">{{hunt.seenDetail}}</p>{{/if}}
+      </div>
+    </div>
+    {{else}}
+    <p class="notes">{{strings.manualHint}}</p>
+    {{/if}}
+    <p class="sml-hunt-question"><strong>{{strings.question}}</strong></p>
+    <div class="sml-hunt-buttons">
+      <button type="button" class="sml-inline-action{{#if hunt.suggestPresent}} is-primary{{/if}}" data-action="answerPresent" {{#unless hunt.canAnswer}}disabled{{/unless}} {{#if busy}}disabled{{/if}}>
+        <i class="fa-solid fa-bug"></i>
+        <span>{{strings.present}}</span>
+      </button>
+      <button type="button" class="sml-inline-action{{#if hunt.suggestGone}} is-primary{{/if}}" data-action="answerGone" {{#unless hunt.canAnswer}}disabled{{/unless}} {{#if busy}}disabled{{/if}}>
+        <i class="fa-solid fa-circle-check"></i>
+        <span>{{strings.gone}}</span>
+      </button>
+    </div>
+    {{#if hunt.errorMode}}<p class="notes sml-hunt-suggestion">{{strings.suggestion}}</p>{{/if}}
+    <button type="button" class="sml-inline-action sml-hunt-stop" data-action="stopHunt" {{#if busy}}disabled{{/if}}>
+      <i class="fa-solid fa-stop"></i>
+      <span>{{strings.stop}}</span>
+    </button>
+  </section>
+  {{/if}}
+
+  <section class="sml-panel sml-hunt-lists">
+    <details>
+      <summary>{{hunt.activeLabel}}</summary>
+      <ul>{{#each hunt.activeModules}}<li>{{this}}</li>{{/each}}</ul>
+    </details>
+    {{#if hunt.suspectModules.length}}
+    <details>
+      <summary>{{hunt.suspectsLabel}}</summary>
+      <ul>{{#each hunt.suspectModules}}<li>{{this}}</li>{{/each}}</ul>
+    </details>
+    {{/if}}
+    {{#if hunt.history.length}}
+    <details>
+      <summary>{{hunt.historyLabel}}</summary>
+      <ol>{{#each hunt.history}}<li>{{this}}</li>{{/each}}</ol>
+    </details>
+    {{/if}}
+  </section>
+  {{/if}}
+</div>

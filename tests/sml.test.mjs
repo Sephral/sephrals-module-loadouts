@@ -4,20 +4,30 @@ import test from "node:test";
 
 import {
   createButton,
+  createFakeForm,
   createTestEnvironment,
   createThemeHost,
   flushPromises,
-  modulePath
+  modulePath,
+  pressDialogButton
 } from "./helpers/test-helpers.mjs";
 
 const env = createTestEnvironment();
 const { __test__ } = await import(modulePath("scripts/sml.js"));
+const actions = __test__.SMLLoadoutsManager.DEFAULT_OPTIONS.actions;
 
 function setStore(scope, profiles = []) {
   env.state.settingsValues.set(`sephrals-module-loadouts.${scope}`, {
     version: __test__.STORAGE_VERSION,
     profiles
   });
+}
+
+// Installation loadouts live in a file in the user data, read once into the cache.
+async function setInstallationFile(profiles = []) {
+  env.state.directories.add("modules/sephrals-module-loadouts/storage");
+  env.state.files.set("modules/sephrals-module-loadouts/storage/installation-loadouts.json", JSON.stringify({ version: 2, profiles }));
+  await __test__.loadInstallationStore({ force: true });
 }
 
 function createProfile(overrides = {}) {
@@ -28,6 +38,8 @@ function createProfile(overrides = {}) {
     tags: overrides.tags ?? ["tag"],
     scope: overrides.scope ?? __test__.PROFILE_SCOPES.WORLD,
     moduleIds: overrides.moduleIds ?? ["module-a"],
+    moduleInfo: overrides.moduleInfo,
+    settings: overrides.settings,
     createdAt: overrides.createdAt ?? "2024-01-01T00:00:00.000Z",
     updatedAt: overrides.updatedAt ?? "2024-01-02T00:00:00.000Z",
     auto: overrides.auto
@@ -42,7 +54,20 @@ function getAutoSnapshots() {
   return __test__.getProfilesForScope(__test__.PROFILE_SCOPES.WORLD).profiles.filter((profile) => profile.auto === true);
 }
 
-function createFilterHtml(profileIds, tags) {
+// Form values for the profile dialog, the default answer of every DialogV2.wait: its first (default) button.
+let formValues = {};
+function useForm(values) {
+  formValues = {
+    profileName: "",
+    profileDescription: "",
+    profileTags: "",
+    profileScope: __test__.PROFILE_SCOPES.WORLD,
+    profileSettings: "none",
+    ...values
+  };
+}
+
+function createFilterRoot(profileIds, tags) {
   const chips = tags.map((tag) => {
     const chip = Object.assign(createButton({ tag }), { attributes: {}, classes: new Set() });
     chip.classList = { toggle: (token, force) => (force ? chip.classes.add(token) : chip.classes.delete(token)) };
@@ -53,84 +78,37 @@ function createFilterHtml(profileIds, tags) {
   });
   const cards = profileIds.map((profileId) => ({ dataset: { profileId }, hidden: false }));
   const search = Object.assign(createButton(), { value: "" });
+  const importFile = Object.assign(createButton(), { value: "" });
   const details = Object.assign(createButton({ profileId: profileIds[0] }), { open: false });
   const empty = { hidden: true };
+  const host = createThemeHost();
   const root = {
-    dataset: {},
+    ...host,
     querySelector(selector) {
       return {
-        '[data-action="filter-search"]': search,
-        ".sml-filter-empty": empty
+        '[data-role="filter-search"]': search,
+        '[data-role="import-file"]': importFile,
+        ".sml-filter-empty": empty,
+        ".sml-app": host.root
       }[selector] ?? null;
     },
     querySelectorAll(selector) {
       return {
         ".sml-profile-card": cards,
-        '[data-action="filter-tag"]': chips,
+        '[data-action="filterTag"]': chips,
         ".sml-profile-details": [details]
       }[selector] ?? [];
     }
   };
 
-  return { html: [root], cards, chips, search, details, empty };
-}
-
-function createManagerHtml() {
-  const saveCurrent = createButton();
-  const exportProfiles = createButton();
-  const importProfiles = createButton();
-  const importFile = createButton();
-  const applyButtons = [createButton({ profileId: "profile-1" })];
-  const editButtons = [createButton({ profileId: "profile-1" })];
-  const duplicateButtons = [createButton({ profileId: "profile-1" })];
-  const deleteButtons = [createButton({ profileId: "profile-1" })];
-
-  importFile.files = [{ name: "profiles.json" }];
-  importFile.value = "profiles.json";
-  importFile.clickCount = 0;
-  importFile.click = () => {
-    importFile.clickCount += 1;
-  };
-
-  const root = {
-    dataset: { uiTheme: __test__.UI_THEMES.FOUNDRY },
-    querySelector(selector) {
-      return {
-        '[data-action="save-current"]': saveCurrent,
-        '[data-action="export-profiles"]': exportProfiles,
-        '[data-action="import-profiles"]': importProfiles,
-        '[data-action="import-file"]': importFile
-      }[selector] ?? null;
-    },
-    querySelectorAll(selector) {
-      return {
-        '[data-action="apply-profile"]': applyButtons,
-        '[data-action="edit-profile"]': editButtons,
-        '[data-action="duplicate-profile"]': duplicateButtons,
-        '[data-action="delete-profile"]': deleteButtons
-      }[selector] ?? [];
-    }
-  };
-
-  return {
-    html: [root],
-    controls: {
-      saveCurrent,
-      exportProfiles,
-      importProfiles,
-      importFile,
-      applyButton: applyButtons[0],
-      editButton: editButtons[0],
-      duplicateButton: duplicateButtons[0],
-      deleteButton: deleteButtons[0]
-    }
-  };
+  return { root, cards, chips, search, details, empty, importFile };
 }
 
 test.beforeEach(() => {
   env.reset();
   __test__.resetModuleTranslations();
-  env.addModule(__test__.MODULE_ID, { title: "Sephral's Module Loadouts" });
+  __test__.resetInstallationStore();
+  env.addModule(__test__.MODULE_ID, { title: "Sephral’s Module Loadouts" });
   env.addModule("module-a", { title: "Alpha" });
   env.addModule("module-b", { title: "Beta" });
   env.addModule("module-c", { title: "Gamma" });
@@ -140,8 +118,9 @@ test.beforeEach(() => {
     "module-c": true
   });
   setStore(__test__.WORLD_PROFILES_SETTING, []);
-  setStore(__test__.GLOBAL_PROFILES_SETTING, []);
   env.state.settingsValues.set(`sephrals-module-loadouts.${__test__.UI_THEME_SETTING}`, __test__.UI_THEMES.SIGNATURE);
+  useForm({});
+  env.state.dialogV2WaitHandler = (options) => pressDialogButton(options, options.buttons[0].action, createFakeForm(formValues));
 });
 
 test.after(() => {
@@ -150,7 +129,18 @@ test.after(() => {
 
 test("registers settings, menu, keybinding, and ready API", async () => {
   await env.hooks.trigger("init");
-  assert.equal(env.state.registerCalls.length, 6);
+  assert.deepEqual(env.state.registerCalls.map((entry) => entry.key).sort(), [
+    "bugHunt",
+    "checkResultDisplay",
+    "globalProfiles",
+    "installationMigrated",
+    "installationRevision",
+    "pendingCheck",
+    "pinnedModules",
+    "uiLanguage",
+    "uiTheme",
+    "worldProfiles"
+  ]);
   const displaySetting = env.state.registerCalls.find((entry) => entry.key === __test__.CHECK_DISPLAY_SETTING);
   assert.equal(displaySetting.data.scope, "world");
   assert.equal(displaySetting.data.config, true);
@@ -158,6 +148,8 @@ test("registers settings, menu, keybinding, and ready API", async () => {
   const markerSetting = env.state.registerCalls.find((entry) => entry.key === __test__.CHECK_MARKER_SETTING);
   assert.equal(markerSetting.data.scope, "world");
   assert.equal(markerSetting.data.config, false);
+  assert.equal(env.state.registerCalls.find((entry) => entry.key === __test__.INSTALLATION_MIGRATED_SETTING).data.scope, "client");
+  assert.equal(env.state.registerCalls.find((entry) => entry.key === __test__.PINNED_MODULES_SETTING).data.scope, "world");
   const languageSetting = env.state.registerCalls.find((entry) => entry.key === __test__.UI_LANGUAGE_SETTING);
   assert.deepEqual(languageSetting.data.choices, {
     default: "Follow Foundry",
@@ -165,6 +157,7 @@ test("registers settings, menu, keybinding, and ready API", async () => {
     en: "English"
   });
   assert.equal(env.state.registerMenuCalls.length, 1);
+  assert.equal(env.state.registerMenuCalls[0].data.type, __test__.SMLSettingsMenu);
   assert.equal(env.state.keybindingCalls.length, 1);
   assert.equal(env.state.keybindingCalls[0].data.restricted, true);
 
@@ -173,11 +166,12 @@ test("registers settings, menu, keybinding, and ready API", async () => {
 
   await env.hooks.trigger("ready");
   const api = env.game.modules.get(__test__.MODULE_ID).api;
-  assert.deepEqual(Object.keys(api).sort(), ["apply", "compare", "getProfiles", "openManager", "saveCurrent"]);
+  assert.deepEqual(Object.keys(api).sort(), ["apply", "bugHunt", "compare", "getPinned", "getProfiles", "openManager", "saveCurrent", "setPinned"]);
   assert.equal(Object.values(api).every((entry) => typeof entry === "function"), true);
 
   const manager = api.openManager();
-  assert.equal(manager.renderCalls.at(-1), true);
+  await flushPromises();
+  assert.equal(manager.renderCalls.at(-1).force, true);
   await manager.close();
 
   env.state.modules.delete(__test__.MODULE_ID);
@@ -209,7 +203,6 @@ test("language helpers load overrides and rerender the open manager", async () =
   assert.equal(__test__.normalizeUiLanguage("en_US"), "en");
   assert.equal(__test__.normalizeUiLanguage("fr"), "en");
 
-  env.state.settingsRegistry.set(`sephrals-module-loadouts.${__test__.UI_LANGUAGE_SETTING}`, {});
   env.state.settingsValues.set(`sephrals-module-loadouts.${__test__.UI_LANGUAGE_SETTING}`, "default");
   env.state.lang = "de-DE";
   assert.equal(__test__.getModuleLanguage(), "de");
@@ -218,6 +211,7 @@ test("language helpers load overrides and rerender the open manager", async () =
   assert.equal(__test__.getModuleLanguage(), "en");
 
   const manager = __test__.openManager();
+  await flushPromises();
   const baselineRenderCount = manager.renderCalls.length;
   const languageSetting = env.state.registerCalls.find((entry) => entry.key === __test__.UI_LANGUAGE_SETTING);
 
@@ -225,9 +219,10 @@ test("language helpers load overrides and rerender the open manager", async () =
   languageSetting.data.onChange("de");
   await flushPromises();
 
-  assert.equal(manager.options.title, "Modul-Loadouts");
+  assert.equal(manager.title, "Modul-Loadouts");
   assert.equal(__test__.localize("SML.Settings.Menu.Label"), "Manager öffnen");
   assert.equal(manager.renderCalls.length, baselineRenderCount + 1);
+  assert.deepEqual(manager.renderCalls.at(-1), { window: { title: "Modul-Loadouts" } });
 
   // "Follow Foundry" with a language the module does not bundle uses Foundry's (community) translation.
   env.state.settingsValues.set(`sephrals-module-loadouts.${__test__.UI_LANGUAGE_SETTING}`, "default");
@@ -266,6 +261,7 @@ test("localization and theme helpers handle missing settings and theme toggles",
   assert.equal(host.dataset.uiTheme, __test__.UI_THEMES.FOUNDRY);
   assert.equal(host.classList.contains("is-theme-foundry"), true);
   assert.equal(host.root.dataset.uiTheme, __test__.UI_THEMES.FOUNDRY);
+  __test__.applyManagerTheme(null);
 });
 
 test("injects the module management launcher only once and wires the click", async () => {
@@ -301,7 +297,7 @@ test("injects the module management launcher only once and wires the click", asy
   assert.equal(insertedButton.sibling, closeButton);
   insertedButton.button.click();
   await flushPromises();
-  const manager = __test__.openManager();
+  const manager = __test__.getManagerApp();
   assert.equal(manager.renderCalls.length >= 1, true);
   await manager.close();
 
@@ -347,6 +343,8 @@ test("profile normalization and store helpers cover aliases, tags, scope, and pe
   assert.deepEqual(normalized.tags, ["alpha", "beta"]);
   assert.deepEqual(normalized.moduleIds, ["module-a", "module-b"]);
   assert.equal(normalized.scope, __test__.PROFILE_SCOPES.GLOBAL);
+  assert.equal("moduleInfo" in normalized, false);
+  assert.equal("settings" in normalized, false);
   assert.equal(__test__.normalizeProfile({ name: "   " }), null);
 
   const legacyStore = __test__.normalizeProfilesStore({
@@ -366,8 +364,10 @@ test("profile normalization and store helpers cover aliases, tags, scope, and pe
   await __test__.removeProfile({ ...normalized, scope: __test__.PROFILE_SCOPES.WORLD });
   assert.equal(__test__.getProfilesForScope(__test__.PROFILE_SCOPES.WORLD).profiles.length, 0);
 
+  env.state.modules.get("module-a").manifest = "https://example.com/module-a/module.json";
   const currentProfile = __test__.createCurrentProfile({ name: "Snapshot", scope: __test__.PROFILE_SCOPES.WORLD });
   assert.deepEqual(currentProfile.moduleIds, ["module-a", "module-c", "sephrals-module-loadouts"]);
+  assert.deepEqual(currentProfile.moduleInfo["module-a"], { title: "Alpha", version: "1.0.0", manifest: "https://example.com/module-a/module.json" });
 });
 
 test("comparison, presentation, and preflight logic resolve dependencies and warnings", () => {
@@ -391,6 +391,7 @@ test("comparison, presentation, and preflight logic resolve dependencies and war
   assert.deepEqual(comparison.toEnable, ["module-b"]);
   assert.deepEqual(comparison.toDisable, ["module-c"]);
   assert.deepEqual(comparison.missing, ["missing-module"]);
+  assert.deepEqual(comparison.pinnedKept, []);
   assert.equal(__test__.asTitleList([]), "-");
   assert.equal(__test__.asTagList(["one", "two"]), "one, two");
 
@@ -455,26 +456,9 @@ test("comparison, presentation, and preflight logic resolve dependencies and war
   assert.match(verifiedWarnings[0], /^Limiter -> Verified New /);
 });
 
-test("confirm and apply profile handle permission, blocking, no-change, and success paths", async () => {
-  assert.equal(await __test__.confirmProfileApplication(createProfile({ name: "Clean" }), {
-    autoEnabledTitles: new Set(),
-    warningDetails: [],
-    compatibilityWarnings: [],
-    missingModules: []
-  }), true);
-
-  env.state.confirmResult = false;
-  const confirmResult = await __test__.confirmProfileApplication(createProfile({ name: "Warn" }), {
-    autoEnabledTitles: new Set(["Beta"]),
-    warningDetails: ["warning one"],
-    compatibilityWarnings: ["compat two"],
-    missingModules: ["missing-module"]
-  });
-  assert.equal(confirmResult, false);
-  assert.match(env.state.lastConfirmOptions.content, /Auto-enable/);
-
+test("apply asks first and handles permission, blocking, cancel, no-change, and success paths", async () => {
   env.state.userCanManage = false;
-  await __test__.applyProfile(createProfile({ name: "Blocked" }));
+  assert.equal(await __test__.applyProfile(createProfile({ name: "Blocked" })), false);
   assert.deepEqual(env.state.notifications.error, ["permission required"]);
 
   env.state.userCanManage = true;
@@ -486,17 +470,20 @@ test("confirm and apply profile handle permission, blocking, no-change, and succ
   await __test__.applyProfile(createProfile({ name: "Blocked", moduleIds: ["module-blocked"] }));
   assert.match(env.state.notifications.error.at(-1), /blocking/);
 
-  env.state.confirmResult = false;
-  await __test__.applyProfile(createProfile({ name: "Cancelled", moduleIds: ["missing-module"] }));
+  env.state.dialogV2WaitHandler = (options) => pressDialogButton(options, "cancel");
+  assert.equal(await __test__.applyProfile(createProfile({ name: "Cancelled", moduleIds: ["missing-module"] })), false);
   assert.equal(env.state.settingWrites.some((entry) => entry.moduleId === "core"), false);
+  assert.match(env.state.dialogV2WaitCalls.at(-1).content, /Missing modules/);
 
-  env.state.confirmResult = true;
+  env.state.dialogV2WaitHandler = (options) => pressDialogButton(options, "apply");
   env.state.settingsValues.set("core.moduleConfiguration", {
     "sephrals-module-loadouts": true,
     "module-a": true
   });
-  await __test__.applyProfile(createProfile({ name: "No Change", moduleIds: ["module-a", "sephrals-module-loadouts"] }));
+  const calls = env.state.dialogV2WaitCalls.length;
+  assert.equal(await __test__.applyProfile(createProfile({ name: "No Change", moduleIds: ["module-a", "sephrals-module-loadouts"] })), false);
   assert.equal(env.state.notifications.info.includes("no changes"), true);
+  assert.equal(env.state.dialogV2WaitCalls.length, calls);
 
   env.addModule("module-d", {
     title: "Delta",
@@ -509,7 +496,11 @@ test("confirm and apply profile handle permission, blocking, no-change, and succ
     "module-a": true,
     "module-c": true
   });
-  await __test__.applyProfile(createProfile({ name: "Deploy", moduleIds: ["module-d", "missing-module"] }));
+  assert.equal(await __test__.applyProfile(createProfile({ name: "Deploy", moduleIds: ["module-d", "missing-module"] })), true);
+  const dialog = env.state.dialogV2WaitCalls.at(-1);
+  assert.match(dialog.content, /Enable:.*Delta/s);
+  assert.match(dialog.content, /Disable:.*Alpha.*Gamma/s);
+  assert.match(dialog.content, /Auto-enable.*Beta/s);
   assert.deepEqual(env.state.reloadCalls, [{ world: true }]);
   assert.equal(env.state.settingWrites.at(-1).moduleId, "core");
   assert.equal(env.state.notifications.info.some((entry) => entry.includes("Deploy")), true);
@@ -548,7 +539,7 @@ test("apply profile treats removal-only changes as changes even if diffObject mi
 
 test("exports and imports profiles, including replacement and explicit world scopes", async () => {
   setStore(__test__.WORLD_PROFILES_SETTING, [createProfile({ id: "w1", name: "World", scope: __test__.PROFILE_SCOPES.WORLD })]);
-  setStore(__test__.GLOBAL_PROFILES_SETTING, [createProfile({ id: "g1", name: "Global", scope: __test__.PROFILE_SCOPES.GLOBAL })]);
+  await setInstallationFile([createProfile({ id: "g1", name: "Global", scope: __test__.PROFILE_SCOPES.GLOBAL })]);
 
   __test__.exportProfiles();
   assert.equal(env.state.savedFiles.length, 1);
@@ -568,38 +559,50 @@ test("exports and imports profiles, including replacement and explicit world sco
   const worldProfiles = __test__.getProfilesForScope(__test__.PROFILE_SCOPES.WORLD).profiles;
   const globalProfiles = __test__.getProfilesForScope(__test__.PROFILE_SCOPES.GLOBAL).profiles;
   assert.deepEqual(worldProfiles.map((profile) => profile.id), ["w1"]);
+  assert.deepEqual(worldProfiles[0].moduleIds, ["module-b"]);
   assert.deepEqual(globalProfiles.map((profile) => profile.id).sort(), ["g1", "g2"]);
   assert.equal(worldProfiles[0].scope, __test__.PROFILE_SCOPES.WORLD);
   assert.equal(env.state.notifications.info.at(-1), "imported 2 1 1");
+  // Installation loadouts go into the file in the user data.
+  const file = JSON.parse(env.state.files.get("modules/sephrals-module-loadouts/storage/installation-loadouts.json"));
+  assert.deepEqual(file.profiles.map((profile) => profile.id).sort(), ["g1", "g2"]);
 });
 
 test("settings menu and manager lifecycle expose the expected UI behavior", async () => {
-  const manager = new __test__.SMLLoadoutsManager();
   const settingsMenu = new __test__.SMLSettingsMenu();
-  const returnedMenu = settingsMenu.render();
-  assert.equal(returnedMenu, settingsMenu);
+  assert.equal(settingsMenu.render(), settingsMenu);
+  await flushPromises();
+  await __test__.getManagerApp().close();
 
-  const defaultOptions = __test__.SMLLoadoutsManager.defaultOptions;
-  assert.equal(defaultOptions.id, __test__.MODULE_ID);
-  assert.equal(defaultOptions.template.includes("loadouts-manager.html"), true);
-  assert.equal(defaultOptions.classes.includes("sml-window"), true);
+  const options = __test__.SMLLoadoutsManager.DEFAULT_OPTIONS;
+  assert.equal(options.id, __test__.MODULE_ID);
+  assert.equal(__test__.SMLLoadoutsManager.PARTS.main.template.includes("loadouts-manager.html"), true);
+  assert.equal(options.classes.includes("sml-window"), true);
+  assert.equal(options.window.resizable, true);
 
   setStore(__test__.WORLD_PROFILES_SETTING, [createProfile({ id: "w1", name: "World One", scope: __test__.PROFILE_SCOPES.WORLD })]);
-  setStore(__test__.GLOBAL_PROFILES_SETTING, [createProfile({ id: "g1", name: "Global One", scope: __test__.PROFILE_SCOPES.GLOBAL })]);
-  const data = manager.getData();
+  await setInstallationFile([createProfile({ id: "g1", name: "Global One", scope: __test__.PROFILE_SCOPES.GLOBAL })]);
+  const manager = new __test__.SMLLoadoutsManager();
+  const data = await manager._prepareContext({});
   assert.equal(data.hasProfiles, true);
   assert.equal(data.globalCount, 1);
   assert.equal(data.worldCount, 1);
   assert.equal(data.strings.title, "Module Loadouts");
+  assert.equal(data.installationUnavailable, false);
+  assert.equal(data.huntRunning, false);
+  assert.equal(manager.title, "Module Loadouts");
 
-  manager.element = [createThemeHost()];
-  await manager._render(true, { test: true });
-  assert.equal(manager.element[0].dataset.uiTheme, __test__.UI_THEMES.SIGNATURE);
+  const { root } = createFilterRoot(["w1", "g1"], []);
+  manager.element = root;
+  manager._onRender({ uiTheme: __test__.UI_THEMES.FOUNDRY }, {});
+  assert.equal(root.dataset.uiTheme, __test__.UI_THEMES.FOUNDRY);
 
   const firstManager = __test__.openManager();
+  await flushPromises();
   await firstManager.close();
   const secondManager = __test__.openManager();
   assert.notEqual(firstManager, secondManager);
+  await flushPromises();
   await secondManager.close();
 });
 
@@ -608,107 +611,116 @@ test("manager template is driven by prelocalized strings", () => {
 
   assert.equal(template.includes("{{localize \"SML."), false);
   assert.equal(typeof __test__.getManagerTemplateStrings, "function");
-  assert.equal(__test__.getManagerTemplateStrings({
+  const strings = __test__.getManagerTemplateStrings({
     worldName: "Test World",
     currentActiveCount: 6,
     worldCount: 1,
-    globalCount: 0
-  }).title, "Module Loadouts");
+    globalCount: 0,
+    pinnedCount: 2
+  });
+  assert.equal(strings.title, "Module Loadouts");
+  for (const action of ["saveCurrent", "pinnedModules", "bugHunt", "exportProfiles", "importProfiles", "applyProfile", "editProfile", "duplicateProfile", "deleteProfile", "filterTag", "copyManifest"]) {
+    assert.match(template, new RegExp(`data-action="${action}"`), action);
+    assert.equal(typeof actions[action], "function", action);
+  }
 });
 
-test("manager listeners exercise save, export, import, edit, duplicate, apply, and delete flows", async () => {
+test("manager actions exercise save, export, import, edit, duplicate, apply, and delete flows", async () => {
   const profile = createProfile({ id: "profile-1", name: "Original", moduleIds: ["module-a"] });
   setStore(__test__.WORLD_PROFILES_SETTING, [profile]);
 
   const manager = new __test__.SMLLoadoutsManager();
-  manager.element = [createThemeHost()];
-  const { html, controls } = createManagerHtml();
+  const { root, importFile } = createFilterRoot(["profile-1"], []);
+  manager.element = root;
 
-  env.state.promptValues = {
-    profileName: "Saved Profile",
-    profileDescription: "Snapshot",
-    profileTags: "live, prep",
-    profileScope: __test__.PROFILE_SCOPES.WORLD
+  useForm({ profileName: "Saved Profile", profileDescription: "Snapshot", profileTags: "live, prep" });
+  await actions.saveCurrent.call(manager);
+  const saved = __test__.getProfilesForScope(__test__.PROFILE_SCOPES.WORLD).profiles.find((entry) => entry.name === "Saved Profile");
+  assert.deepEqual(saved.tags, ["live", "prep"]);
+  assert.equal("settings" in saved, false);
+
+  actions.exportProfiles.call(manager);
+  assert.equal(env.state.savedFiles.length >= 1, true);
+
+  let clicked = 0;
+  importFile.click = () => {
+    clicked += 1;
   };
+  actions.importProfiles.call(manager);
+  assert.equal(clicked, 1);
+
   env.state.fileText = JSON.stringify({
     profiles: [{ id: "imported", name: "Imported", scope: __test__.PROFILE_SCOPES.GLOBAL, moduleIds: ["module-b"] }]
   });
-
-  manager.activateListeners(html);
-
-  controls.saveCurrent.click();
-  await flushPromises();
-  assert.equal(__test__.getProfilesForScope(__test__.PROFILE_SCOPES.WORLD).profiles.some((entry) => entry.name === "Saved Profile"), true);
-
-  controls.exportProfiles.click();
-  assert.equal(env.state.savedFiles.length >= 1, true);
-
-  controls.importProfiles.click();
-  assert.equal(controls.importFile.clickCount, 1);
-
-  controls.importFile.dispatch("change", { currentTarget: controls.importFile });
-  await flushPromises();
+  importFile.files = [{ name: "profiles.json" }];
+  importFile.value = "profiles.json";
+  await manager._onImport({ currentTarget: importFile });
   assert.equal(__test__.getProfilesForScope(__test__.PROFILE_SCOPES.GLOBAL).profiles.some((entry) => entry.id === "imported"), true);
-  assert.equal(controls.importFile.value, "");
+  assert.equal(importFile.value, "");
+  // The import shows its preview first.
+  assert.match(env.state.dialogV2WaitCalls.at(-1).content, /Imported/);
 
-  env.state.promptValues = {
-    profileName: "Edited Profile",
-    profileDescription: "Changed",
-    profileTags: "alpha",
-    profileScope: __test__.PROFILE_SCOPES.GLOBAL
-  };
-  controls.editButton.click();
-  await flushPromises();
+  useForm({ profileName: "Edited Profile", profileDescription: "Changed", profileTags: "alpha", profileScope: __test__.PROFILE_SCOPES.GLOBAL });
+  await actions.editProfile.call(manager, {}, { dataset: { profileId: "profile-1" } });
   assert.equal(__test__.findProfileById("profile-1").scope, __test__.PROFILE_SCOPES.GLOBAL);
+  assert.equal(__test__.getProfilesForScope(__test__.PROFILE_SCOPES.WORLD).profiles.some((entry) => entry.id === "profile-1"), false);
 
-  env.state.promptValues = {
-    profileName: "Duplicate Profile",
-    profileDescription: "Copy",
-    profileTags: "copy",
-    profileScope: __test__.PROFILE_SCOPES.WORLD
-  };
-  controls.duplicateButton.click();
-  await flushPromises();
+  useForm({ profileName: "Duplicate Profile", profileDescription: "Copy", profileTags: "copy" });
+  await actions.duplicateProfile.call(manager, {}, { dataset: { profileId: "profile-1" } });
   assert.equal(__test__.getAllProfiles().some((entry) => entry.name === "Duplicate Profile"), true);
 
-  env.state.confirmResult = true;
-  controls.applyButton.click();
-  await flushPromises();
+  await actions.applyProfile.call(manager, {}, { dataset: { profileId: "profile-1" } });
   assert.equal(env.state.settingWrites.some((entry) => entry.moduleId === "core"), true);
 
-  controls.deleteButton.click();
-  await flushPromises();
+  await actions.deleteProfile.call(manager, {}, { dataset: { profileId: "profile-1" } });
   assert.equal(__test__.findProfileById("profile-1"), null);
 });
 
-test("manager listener abort and error branches are handled", async () => {
+test("manager abort and error branches are handled", async () => {
   const existing = createProfile({ id: "profile-1", name: "Original", moduleIds: ["module-a"] });
   setStore(__test__.WORLD_PROFILES_SETTING, [existing]);
 
   const manager = new __test__.SMLLoadoutsManager();
-  manager.element = [createThemeHost()];
-  const { html, controls } = createManagerHtml();
-  manager.activateListeners(html);
+  const { root, importFile } = createFilterRoot(["profile-1"], []);
+  manager.element = root;
 
-  env.state.promptValues = {
-    profileName: "Original",
-    profileDescription: "Same",
-    profileTags: "same",
-    profileScope: __test__.PROFILE_SCOPES.WORLD
-  };
-  env.state.confirmResult = false;
-  controls.saveCurrent.click();
-  await flushPromises();
-  assert.equal(__test__.getProfilesForScope(__test__.PROFILE_SCOPES.WORLD).profiles.length, 1);
+  // Same name: the replace question is answered with no.
+  useForm({ profileName: "Original", profileDescription: "Same", profileTags: "same" });
+  env.state.dialogV2Result = false;
+  await manager._onSaveCurrent();
+  assert.deepEqual(__test__.getProfilesForScope(__test__.PROFILE_SCOPES.WORLD).profiles.map((entry) => entry.description), [""]);
 
-  controls.importFile.files = [{ name: "broken.json" }];
-  controls.importFile.value = "broken.json";
+  // Yes replaces it and keeps the id.
+  env.state.dialogV2Result = true;
+  await manager._onSaveCurrent();
+  const replaced = __test__.getProfilesForScope(__test__.PROFILE_SCOPES.WORLD).profiles;
+  assert.deepEqual(replaced.map((entry) => [entry.id, entry.description]), [["profile-1", "Same"]]);
+
+  importFile.files = [{ name: "broken.json" }];
+  importFile.value = "broken.json";
   env.state.fileText = "{";
-  controls.importFile.dispatch("change", { currentTarget: controls.importFile });
-  await flushPromises();
+  await manager._onImport({ currentTarget: importFile });
   assert.equal(env.state.notifications.error.at(-1), "import failed invalid import");
-  assert.equal(controls.importFile.value, "");
+  assert.equal(importFile.value, "");
+
+  // No file chosen: nothing happens.
+  importFile.files = [];
+  await manager._onImport({ currentTarget: importFile });
+
+  // A failing installation write is reported, not thrown.
+  env.state.uploadFails = true;
+  useForm({ profileName: "Installed", profileScope: __test__.PROFILE_SCOPES.GLOBAL });
+  const consoleError = console.error;
+  console.error = () => {};
+  try {
+    await manager._onSaveCurrent();
+  } finally {
+    console.error = consoleError;
+  }
+  assert.equal(env.state.notifications.error.at(-1), "save failed installation write failed");
+  assert.equal(__test__.getProfilesForScope(__test__.PROFILE_SCOPES.GLOBAL).profiles.length, 0);
 });
+
 test("auto snapshot helpers keep the newest three and turn into regular profiles on edit", () => {
   const profiles = [
     createProfile({ id: "r1", name: "Regular" }),
@@ -763,6 +775,7 @@ test("applying a profile saves an undo snapshot first and keeps at most three", 
   assert.equal(snapshots[0].scope, __test__.PROFILE_SCOPES.WORLD);
   assert.match(snapshots[0].name, /^Before apply \(.+\)$/);
   assert.equal(snapshots[0].description, "Before Prep");
+  assert.equal("settings" in snapshots[0], false);
   assert.equal(env.state.notifications.info.includes(`snapshot ${snapshots[0].name}`), true);
 
   // Undo: applying the snapshot restores the old state and stores the next snapshot.
@@ -782,10 +795,10 @@ test("applying a profile saves an undo snapshot first and keeps at most three", 
     .map((profile) => profile.id)
     .sort(), ["live", "prep"]);
 
-  // No change and a cancelled preflight leave the snapshots alone.
+  // No change and a cancelled dialog leave the snapshots alone.
   const writeCount = env.state.settingWrites.length;
   assert.equal(await __test__.applyProfile(live), false);
-  env.state.confirmResult = false;
+  env.state.dialogV2WaitHandler = (options) => pressDialogButton(options, "cancel");
   assert.equal(await __test__.applyProfile(createProfile({ id: "warn", name: "Warn", moduleIds: ["missing-module"] })), false);
   assert.equal(env.state.settingWrites.length, writeCount);
 });
@@ -795,17 +808,17 @@ test("manager template hides zero badges and lists module changes in a details e
   const metaStart = template.indexOf('<div class="sml-profile-meta">');
   const meta = template.slice(metaStart, template.indexOf("</div>", metaStart));
   const badgeLines = meta.split(/\r?\n/).filter((line) => line.includes('class="sml-badge'));
-  assert.equal(badgeLines.length, 8);
+  assert.equal(badgeLines.length, 12);
   assert.equal(badgeLines.every((line) => /^\s*\{\{#if \w+\}\}<span class="sml-badge[^>]*>\{\{\w+\}\}<\/span>\{\{\/if\}\}$/.test(line)), true);
   assert.match(template, /<details class="sml-profile-details" data-profile-id="\{\{id\}\}"/);
-  assert.match(template, /data-action="filter-search"/);
-  assert.match(template, /data-action="filter-tag"/);
+  assert.match(template, /data-role="filter-search"/);
+  assert.match(template, /data-action="filterTag"/);
 
   const presented = __test__.presentProfile(createProfile({ moduleIds: ["module-a", "module-b", "missing-module"] }));
   assert.equal(presented.hasModuleDetails, true);
   assert.deepEqual(presented.enableList, ["Beta"]);
   assert.deepEqual(presented.disableList, ["Gamma"]);
-  assert.deepEqual(presented.missingList, ["missing-module"]);
+  assert.deepEqual(presented.missingList.map((entry) => [entry.title, entry.page]), [["missing-module", "https://foundryvtt.com/packages/missing-module"]]);
   assert.equal(presented.isAuto, false);
 
   const matching = __test__.presentProfile(createProfile({ moduleIds: ["module-a", "module-c"] }));
@@ -814,12 +827,12 @@ test("manager template hides zero badges and lists module changes in a details e
   assert.equal(__test__.presentProfile(createSnapshot("s1", "2026-01-01T00:00:00.000Z")).isAuto, true);
 
   const strings = __test__.getManagerTemplateStrings({ worldName: "World", currentActiveCount: 1, worldCount: 1, globalCount: 0 });
-  for (const key of ["searchPlaceholder", "filterEmpty", "moduleDetails", "detailsEnable", "detailsDisable", "detailsMissing", "autoBadge", "autoHint"]) {
+  for (const key of ["searchPlaceholder", "filterEmpty", "moduleDetails", "detailsEnable", "detailsDisable", "detailsMissing", "detailsPinned", "detailsChanged", "detailsUnusedLibraries", "detailsSettings", "autoBadge", "autoHint", "pinned", "bugHunt"]) {
     assert.equal(typeof strings[key], "string", key);
   }
 });
 
-test("profile filter matches name, description and tags and the manager keeps it while open", () => {
+test("profile filter matches name, description and tags and the manager keeps it while open", async () => {
   const beta = createProfile({ name: "Beta Live", description: "Session night", tags: ["live"] });
   assert.equal(__test__.profileMatchesFilter(beta, {}), true);
   assert.equal(__test__.profileMatchesFilter(beta, { search: "  NIGHT " }), true);
@@ -835,12 +848,13 @@ test("profile filter matches name, description and tags and the manager keeps it
     createProfile({ id: "p-gamma", name: "Gamma", tags: ["prep", "debug"], moduleIds: ["module-c"] })
   ]);
   const manager = new __test__.SMLLoadoutsManager();
-  const data = manager.getData();
+  const data = await manager._prepareContext({});
   assert.deepEqual(data.tagFilters.map((entry) => entry.value), ["debug", "live", "Prep"]);
   assert.equal(data.tagFilters.some((entry) => entry.active), false);
 
-  const { html, cards, chips, search, details, empty } = createFilterHtml(["p-alpha", "p-beta", "p-gamma"], ["debug", "live", "Prep"]);
-  manager.activateListeners(html);
+  const { root, cards, chips, search, details, empty } = createFilterRoot(["p-alpha", "p-beta", "p-gamma"], ["debug", "live", "Prep"]);
+  manager.element = root;
+  manager._onRender(data, {});
   const hiddenStates = () => cards.map((card) => card.hidden);
   assert.deepEqual(hiddenStates(), [false, false, false]);
 
@@ -850,7 +864,7 @@ test("profile filter matches name, description and tags and the manager keeps it
 
   search.value = "";
   search.dispatch("input");
-  chips[2].click();
+  actions.filterTag.call(manager, {}, chips[2]);
   assert.deepEqual(hiddenStates(), [false, true, false]);
   assert.equal(chips[2].classes.has("is-active"), true);
   assert.equal(chips[2].attributes["aria-pressed"], "true");
@@ -867,24 +881,24 @@ test("profile filter matches name, description and tags and the manager keeps it
   assert.equal(empty.hidden, false);
 
   // A re-render starts from the stored filter.
-  const rerendered = manager.getData();
+  const rerendered = await manager._prepareContext({});
   assert.equal(rerendered.filterSearch, "nothing");
   assert.equal(rerendered.tagFilters.find((entry) => entry.value === "Prep").active, true);
 
-  chips[2].click();
+  actions.filterTag.call(manager, {}, chips[2]);
   assert.equal(chips[2].classes.has("is-active"), false);
 
   details.open = true;
   details.dispatch("toggle");
-  assert.equal(manager.getData().profiles.find((profile) => profile.id === "p-alpha").detailsOpen, true);
+  assert.equal((await manager._prepareContext({})).profiles.find((profile) => profile.id === "p-alpha").detailsOpen, true);
   details.open = false;
   details.dispatch("toggle");
-  assert.equal(manager.getData().profiles.find((profile) => profile.id === "p-alpha").detailsOpen, false);
+  assert.equal((await manager._prepareContext({})).profiles.find((profile) => profile.id === "p-alpha").detailsOpen, false);
 
   // A tag filter whose last profile is gone falls back to no tag.
-  chips[0].click();
+  actions.filterTag.call(manager, {}, chips[0]);
   setStore(__test__.WORLD_PROFILES_SETTING, [createProfile({ id: "p-beta", name: "Beta Live", tags: ["live"] })]);
-  assert.equal(manager.getData().tagFilters.some((entry) => entry.active), false);
+  assert.equal((await manager._prepareContext({})).tagFilters.some((entry) => entry.active), false);
 });
 
 test("API compare, saveCurrent and apply follow the manager's rules", async () => {
@@ -895,13 +909,13 @@ test("API compare, saveCurrent and apply follow the manager's rules", async () =
     createProfile({ id: "w-prep", name: "Prep", moduleIds: ["module-b"] }),
     createProfile({ id: "w-warn", name: "Warn", moduleIds: ["module-c", "missing-module"] })
   ]);
-  setStore(__test__.GLOBAL_PROFILES_SETTING, [
+  await setInstallationFile([
     createProfile({ id: "g-prep", name: "prep", scope: __test__.PROFILE_SCOPES.GLOBAL, moduleIds: ["module-a", "missing-module"] })
   ]);
 
   // Names match without case, the world profile wins over the installation one.
-  assert.deepEqual(api.compare("PREP"), { toEnable: ["module-b"], toDisable: ["module-a", "module-c"], missing: [] });
-  assert.deepEqual(api.compare("g-prep"), { toEnable: [], toDisable: ["module-c"], missing: ["missing-module"] });
+  assert.deepEqual(api.compare("PREP"), { toEnable: ["module-b"], toDisable: ["module-a", "module-c"], missing: [], settings: [] });
+  assert.deepEqual(api.compare("g-prep"), { toEnable: [], toDisable: ["module-c"], missing: ["missing-module"], settings: [] });
   assert.deepEqual(api.compare({ id: "w-warn" }).missing, ["missing-module"]);
   assert.equal(api.compare("nope"), null);
   assert.equal(env.state.notifications.warn.at(-1), "not found nope");
@@ -934,14 +948,15 @@ test("API compare, saveCurrent and apply follow the manager's rules", async () =
     .filter((profile) => profile.name.toLowerCase() === "session").length, 1);
 
   // apply() always asks by default and lists the real switch.
-  env.state.dialogV2Result = false;
+  env.state.dialogV2WaitHandler = (options) => pressDialogButton(options, "cancel");
+  const calls = env.state.dialogV2WaitCalls.length;
   assert.equal(await api.apply("Prep"), false);
-  assert.equal(env.state.dialogV2Calls.length, 1);
-  assert.match(env.state.dialogV2Calls[0].content, /Enable:.*Beta/s);
-  assert.match(env.state.dialogV2Calls[0].content, /Disable:.*Alpha.*Gamma/s);
+  assert.equal(env.state.dialogV2WaitCalls.length, calls + 1);
+  assert.match(env.state.dialogV2WaitCalls.at(-1).content, /Enable:.*Beta/s);
+  assert.match(env.state.dialogV2WaitCalls.at(-1).content, /Disable:.*Alpha.*Gamma/s);
   assert.equal(env.state.settingWrites.some((entry) => entry.moduleId === "core"), false);
 
-  env.state.dialogV2Result = true;
+  env.state.dialogV2WaitHandler = (options) => pressDialogButton(options, "apply");
   assert.equal(await api.apply("w-prep"), true);
   assert.deepEqual(env.state.settingsValues.get("core.moduleConfiguration"), {
     "module-b": true,
@@ -949,16 +964,16 @@ test("API compare, saveCurrent and apply follow the manager's rules", async () =
   });
   assert.equal(getAutoSnapshots().length, 1);
 
-  // confirm: false skips every dialog, also the preflight warning.
-  env.state.confirmResult = false;
-  env.state.lastConfirmOptions = null;
+  // confirm: false skips every dialog.
+  const before = env.state.dialogV2WaitCalls.length;
   assert.equal(await api.apply("Warn", { confirm: false }), true);
-  assert.equal(env.state.dialogV2Calls.length, 2);
-  assert.equal(env.state.lastConfirmOptions, null);
+  assert.equal(env.state.dialogV2WaitCalls.length, before);
   assert.equal(env.state.notifications.warn.at(-1), "missing missing-module");
 
   assert.equal(await api.apply("unknown"), false);
   assert.equal(env.state.notifications.warn.at(-1), "not found unknown");
+
+  assert.deepEqual(await api.setPinned(["module-b", "module-b", __test__.MODULE_ID, ""]), ["module-b"]);
 });
 
 test("names go into dialog content and notifications escaped", async () => {
@@ -967,18 +982,19 @@ test("names go into dialog content and notifications escaped", async () => {
   setStore(__test__.WORLD_PROFILES_SETTING, [createProfile({ id: "profile-1", name: evil })]);
 
   const manager = new __test__.SMLLoadoutsManager();
-  manager.element = [createThemeHost()];
-  const { html, controls } = createManagerHtml();
-  manager.activateListeners(html);
-  env.state.confirmResult = true;
-  controls.deleteButton.click();
-  await flushPromises();
-  assert.equal(env.state.lastConfirmOptions.content.includes("<img"), false);
-  assert.equal(env.state.lastConfirmOptions.content.includes("&lt;img"), true);
+  manager.element = createFilterRoot(["profile-1"], []).root;
+  env.state.dialogV2Result = true;
+  await actions.deleteProfile.call(manager, {}, { dataset: { profileId: "profile-1" } });
+  assert.equal(env.state.dialogV2Calls.at(-1).content.includes("<img"), false);
+  assert.equal(env.state.dialogV2Calls.at(-1).content.includes("&lt;img"), true);
   assert.equal(env.state.notifications.info.at(-1).includes("<img"), false);
 
   await __test__.apiSaveCurrent("<b>Bold</b>");
   assert.equal(env.state.notifications.info.at(-1), "saved &lt;b&gt;Bold&lt;/b&gt;");
+
+  const form = __test__.renderProfileForm({ name: evil, description: "\"quoted\"", tags: ["<t>"] });
+  assert.equal(form.includes("<img"), false);
+  assert.equal(form.includes("&quot;quoted&quot;"), true);
 });
 
 test("edit and duplicate refuse names that already exist in the target scope, empty names warn", async () => {
@@ -987,56 +1003,43 @@ test("edit and duplicate refuse names that already exist in the target scope, em
     createProfile({ id: "profile-1", name: "Original" }),
     createProfile({ id: "profile-2", name: "Other" })
   ]);
-  setStore(__test__.GLOBAL_PROFILES_SETTING, [createProfile({ id: "g1", name: "Installed", scope: __test__.PROFILE_SCOPES.GLOBAL })]);
+  await setInstallationFile([createProfile({ id: "g1", name: "Installed", scope: __test__.PROFILE_SCOPES.GLOBAL })]);
   assert.equal(__test__.findNameConflict("other", __test__.PROFILE_SCOPES.WORLD)?.id, "profile-2");
   assert.equal(__test__.findNameConflict("Original", __test__.PROFILE_SCOPES.WORLD, "profile-1"), null);
   assert.equal(__test__.findNameConflict("Other", __test__.PROFILE_SCOPES.GLOBAL), null);
 
   const manager = new __test__.SMLLoadoutsManager();
-  manager.element = [createThemeHost()];
-  const { html, controls } = createManagerHtml();
-  manager.activateListeners(html);
+  manager.element = createFilterRoot(["profile-1"], []).root;
 
   // Edit onto another profile's name (other case) is refused
-  env.state.promptValues = { profileName: "OTHER", profileDescription: "", profileTags: "", profileScope: __test__.PROFILE_SCOPES.WORLD };
-  controls.editButton.click();
-  await flushPromises();
+  useForm({ profileName: "OTHER" });
+  await manager._onEdit("profile-1");
   assert.equal(__test__.findProfileById("profile-1").name, "Original");
   assert.equal(env.state.notifications.warn.at(-1), "taken Other World");
 
   // Keeping the own name (other case) is fine, and so is a name that only exists in the other scope
-  env.state.promptValues = { profileName: "ORIGINAL", profileDescription: "", profileTags: "", profileScope: __test__.PROFILE_SCOPES.WORLD };
-  controls.editButton.click();
-  await flushPromises();
+  useForm({ profileName: "ORIGINAL" });
+  await manager._onEdit("profile-1");
   assert.equal(__test__.findProfileById("profile-1").name, "ORIGINAL");
-  env.state.promptValues = { profileName: "Installed", profileDescription: "", profileTags: "", profileScope: __test__.PROFILE_SCOPES.WORLD };
-  controls.duplicateButton.click();
-  await flushPromises();
+  useForm({ profileName: "Installed" });
+  await manager._onDuplicate("profile-1");
   assert.equal(__test__.getProfilesForScope(__test__.PROFILE_SCOPES.WORLD).profiles.some((entry) => entry.name === "Installed"), true);
 
   // Duplicate onto an existing name in the target scope is refused
   const count = __test__.getAllProfiles().length;
-  env.state.promptValues = { profileName: "installed", profileDescription: "", profileTags: "", profileScope: __test__.PROFILE_SCOPES.GLOBAL };
-  controls.duplicateButton.click();
-  await flushPromises();
+  useForm({ profileName: "installed", profileScope: __test__.PROFILE_SCOPES.GLOBAL });
+  await manager._onDuplicate("profile-1");
   assert.equal(__test__.getAllProfiles().length, count);
   assert.equal(env.state.notifications.warn.at(-1), "taken Installed Installation");
 
   // A submitted empty name warns, a closed dialog stays silent and is not rejected
   const warnings = env.state.notifications.warn.length;
-  env.state.promptValues = { profileName: "   ", profileDescription: "", profileTags: "", profileScope: __test__.PROFILE_SCOPES.WORLD };
-  controls.saveCurrent.click();
-  await flushPromises();
+  useForm({ profileName: "   " });
+  await manager._onSaveCurrent();
   assert.equal(env.state.notifications.warn.at(-1), "name required");
-  assert.equal(env.state.lastPromptOptions.rejectClose, false);
-  const originalPrompt = globalThis.Dialog.prompt;
-  globalThis.Dialog.prompt = async () => null;
-  try {
-    controls.editButton.click();
-    await flushPromises();
-  } finally {
-    globalThis.Dialog.prompt = originalPrompt;
-  }
+  assert.equal(env.state.dialogV2WaitCalls.at(-1).rejectClose, false);
+  env.state.dialogV2WaitHandler = () => null;
+  await manager._onEdit("profile-1");
   assert.equal(env.state.notifications.warn.length, warnings + 1);
 });
 
@@ -1045,7 +1048,7 @@ test("import keeps ids unique: id match wins, stored ids stay, ids of the other 
     createProfile({ id: "w1", name: "First" }),
     createProfile({ id: "w2", name: "Second" })
   ]);
-  setStore(__test__.GLOBAL_PROFILES_SETTING, [createProfile({ id: "g1", name: "Global", scope: __test__.PROFILE_SCOPES.GLOBAL })]);
+  await setInstallationFile([createProfile({ id: "g1", name: "Global", scope: __test__.PROFILE_SCOPES.GLOBAL })]);
   env.state.fileText = JSON.stringify({
     profiles: [
       // name of w1 with an unknown id: replaces w1 and keeps the id w1
@@ -1080,55 +1083,49 @@ test("players without the module permission get no manager, read-only users cann
   assert.equal(__test__.canOpenManager(), true);
 
   const template = readFileSync(new URL(modulePath("templates/loadouts-manager.html")), "utf8");
-  assert.match(template, /data-action="save-current" \{\{#unless canManage\}\}disabled\{\{\/unless\}\}/);
-  assert.match(template, /data-action="import-profiles" \{\{#unless canManage\}\}disabled\{\{\/unless\}\}/);
+  for (const action of ["saveCurrent", "importProfiles", "pinnedModules", "bugHunt"]) {
+    assert.match(template, new RegExp(`data-action="${action}" \\{\\{#unless canManage\\}\\}disabled\\{\\{/unless\\}\\}`), action);
+  }
 
   const manager = new __test__.SMLLoadoutsManager();
-  manager.element = [createThemeHost()];
-  const { html, controls } = createManagerHtml();
-  manager.activateListeners(html);
-  env.state.promptValues = { profileName: "Denied", profileDescription: "", profileTags: "", profileScope: __test__.PROFILE_SCOPES.WORLD };
+  const { root, importFile } = createFilterRoot([], []);
+  manager.element = root;
+  useForm({ profileName: "Denied" });
   env.state.fileText = JSON.stringify({ profiles: [{ id: "x", name: "Denied Import", moduleIds: [] }] });
-  controls.saveCurrent.click();
-  controls.importFile.dispatch("change", { currentTarget: controls.importFile });
-  await flushPromises();
+  await manager._onSaveCurrent();
+  importFile.files = [{ name: "profiles.json" }];
+  importFile.value = "profiles.json";
+  await manager._onImport({ currentTarget: importFile });
+  await manager._onPinnedModules();
   assert.equal(__test__.getAllProfiles().length, 0);
-  assert.equal(env.state.notifications.error.filter((entry) => entry === "permission required").length, 3);
-  assert.equal(controls.importFile.value, "");
+  assert.equal(env.state.notifications.error.filter((entry) => entry === "permission required").length, 4);
+  assert.equal(importFile.value, "");
+  assert.equal(env.state.dialogV2WaitCalls.length, 0);
 });
 
-test("an open manager re-renders when the world loadouts change elsewhere", async () => {
+test("an open manager re-renders when the world loadouts or pinned modules change elsewhere", async () => {
   await env.hooks.trigger("init");
-  const setting = env.state.settingsRegistry.get(`${__test__.MODULE_ID}.${__test__.WORLD_PROFILES_SETTING}`);
-  assert.equal(typeof setting.onChange, "function");
   const manager = __test__.openManager();
+  await flushPromises();
   const renders = manager.renderCalls.length;
-  manager.rendered = false;
-  setting.onChange();
-  assert.equal(manager.renderCalls.length, renders);
-  manager.rendered = true;
-  setting.onChange();
-  assert.deepEqual(manager.renderCalls.slice(renders), [false]);
+  env.state.settingsRegistry.get(`${__test__.MODULE_ID}.${__test__.WORLD_PROFILES_SETTING}`).onChange();
+  env.state.settingsRegistry.get(`${__test__.MODULE_ID}.${__test__.PINNED_MODULES_SETTING}`).onChange();
+  assert.deepEqual(manager.renderCalls.slice(renders), [{}, {}]);
   await manager.close();
+  // A closed manager is forgotten, nothing renders it again.
+  env.state.settingsRegistry.get(`${__test__.MODULE_ID}.${__test__.WORLD_PROFILES_SETTING}`).onChange();
+  assert.equal(manager.renderCalls.length, renders + 2);
 });
 
 test("editing a profile that another gamemaster deleted meanwhile does not bring it back", async () => {
   setStore(__test__.WORLD_PROFILES_SETTING, [createProfile({ id: "profile-1", name: "Original" })]);
   const manager = new __test__.SMLLoadoutsManager();
-  manager.element = [createThemeHost()];
-  const { html, controls } = createManagerHtml();
-  manager.activateListeners(html);
-  const originalPrompt = globalThis.Dialog.prompt;
-  globalThis.Dialog.prompt = async (options) => {
+  manager.element = createFilterRoot(["profile-1"], []).root;
+  env.state.dialogV2WaitHandler = (options) => {
     setStore(__test__.WORLD_PROFILES_SETTING, []);
-    return options.callback({ find: (selector) => ({ val: () => (selector.includes("profileName") ? "Renamed" : selector.includes("profileScope") ? "world" : "") }) });
+    return pressDialogButton(options, "save", createFakeForm({ profileName: "Renamed", profileScope: "world", profileSettings: "none" }));
   };
-  try {
-    controls.editButton.click();
-    await flushPromises();
-  } finally {
-    globalThis.Dialog.prompt = originalPrompt;
-  }
+  await manager._onEdit("profile-1");
   assert.equal(__test__.getAllProfiles().length, 0);
   assert.equal(env.state.notifications.warn.at(-1), "not found Original");
 });

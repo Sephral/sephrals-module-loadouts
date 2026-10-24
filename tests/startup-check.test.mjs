@@ -149,7 +149,8 @@ test("errors from events, rejections and console calls are attributed to modules
   assert.deepEqual(__test__.describeErrorEvent({ target: {}, error: null, message: "Uncaught SyntaxError", filename: `${BASE}/modules/mod-two/x.js` }),
     { moduleId: "mod-two", kind: "error", detail: "Uncaught SyntaxError", error: null });
   assert.equal(__test__.describeRejection({ reason: errorFrom("mod-one", "async fail") }).moduleId, "mod-one");
-  assert.equal(__test__.describeRejection({ reason: "no module" }), null);
+  // Errors without a module frame are kept for the bug hunt, the check skips them.
+  assert.deepEqual(__test__.describeRejection({ reason: "no module" }), { moduleId: null, kind: "error", detail: "no module", error: null });
   assert.equal(__test__.describeThrown(errorFrom("mod-one", "")), null);
 
   // Console: error arguments first, then strings, then the call site below the wrapper.
@@ -159,7 +160,7 @@ test("errors from events, rejections and console calls are attributed to modules
   assert.equal(__test__.describeConsoleError([`see ${BASE}/modules/mod-two/x.js`]).moduleId, "mod-two");
   const callSite = `Error\n${frame(__test__.MODULE_ID, "scripts/sml.js")}\n${frame("mod-caller")}`;
   assert.equal(__test__.describeConsoleError(["something failed", { data: 1 }], callSite).moduleId, "mod-caller");
-  assert.equal(__test__.describeConsoleError(["core only"], `Error\n${frame(__test__.MODULE_ID, "scripts/sml.js")}`), null);
+  assert.equal(__test__.describeConsoleError(["core only"], `Error\n${frame(__test__.MODULE_ID, "scripts/sml.js")}`).moduleId, null);
   assert.equal(__test__.describeConsoleError([{ data: 1 }], callSite), null);
 
   assert.deepEqual(__test__.collectFailedModuleLoads([
@@ -176,6 +177,27 @@ test("errors from events, rejections and console calls are attributed to modules
   assert.deepEqual(__test__.collectFailedModuleLoads(undefined), []);
 });
 
+test("libWrapper in the call path does not take the blame", () => {
+  // Live v14 case: libWrapper wraps Hooks.onError, so the error Foundry builds around a hook error carries its frame.
+  const core = (name, line) => `    at ${name} (${BASE}/scripts/foundry.mjs:${line}:17)`;
+  const libWrapper = `    at Hooks.onError (${BASE}/modules/lib-wrapper/lib-wrapper.js:1:2048)`;
+  const cause = new TypeError("Cannot read properties of undefined (reading 'radius')");
+  cause.stack = [`TypeError: ${cause.message}`, frame("lantern-light-overlays", "scripts/overlays.js"), core("#call", 4090), core("Hooks.callAll", 4060)].join("\n");
+  const message = `Error thrown in hooked function '' for hook 'ready'. ${cause.message}`;
+  const wrapped = new Error(message, { cause });
+  wrapped.stack = [`Error: ${message}`, core("Hooks.onError", 4120), libWrapper, core("#call", 4095), core("Hooks.callAll", 4060)].join("\n");
+  const callStack = ["Error", `    at console.smlStartupConsoleError (${BASE}/modules/${__test__.MODULE_ID}/scripts/sml.js:1:1)`, core("Hooks.onError", 4121), libWrapper].join("\n");
+
+  assert.equal(__test__.describeConsoleError([wrapped], callStack).moduleId, "lantern-light-overlays");
+  assert.equal(__test__.describeThrown(wrapped).moduleId, "lantern-light-overlays");
+  // The cause comes first, its stack holds the module that threw.
+  assert.equal(__test__.collectErrorTexts(wrapped)[0], cause.stack);
+  // libWrapper only counts when nothing else shows up, for example an error inside libWrapper itself.
+  assert.equal(__test__.attributeModuleId([libWrapper, frame("mod-two")]), "mod-two");
+  assert.equal(__test__.attributeModuleId([`${libWrapper}\n${frame("mod-two")}`]), "mod-two");
+  assert.equal(__test__.attributeModuleId([libWrapper, "no path"]), "lib-wrapper");
+});
+
 test("core errors logged through Hooks.onError are never blamed on this module", () => {
   // Live v13 case: a broken scene in the world, logged by core while the game is set up.
   const core = (name, line) => `    at ${name} (${BASE}/scripts/foundry.mjs:${line}:17)`;
@@ -189,19 +211,19 @@ test("core errors logged through Hooks.onError are never blamed on this module",
   // Call site stacks as the console wrapper sees them, before and after the fix.
   const helperFrames = ["Error", own("<anonymous>", 1165), own("recordSafely", 1132), own("console.smlStartupConsoleError", 1165), core("Hooks.onError", 4121), core("Scenes._initialize", 61425), core("Game.setupGame", 98510)].join("\n");
   const wrapperOnly = ["Error", own("console.smlStartupConsoleError", 1164), core("Hooks.onError", 4121), core("Scenes._initialize", 61425)].join("\n");
-  assert.equal(__test__.describeConsoleError([wrapped], helperFrames), null);
-  assert.equal(__test__.describeConsoleError([wrapped], wrapperOnly), null);
-  assert.equal(__test__.describeConsoleError([message], helperFrames), null);
+  assert.equal(__test__.describeConsoleError([wrapped], helperFrames).moduleId, null);
+  assert.equal(__test__.describeConsoleError([wrapped], wrapperOnly).moduleId, null);
+  assert.equal(__test__.describeConsoleError([message], helperFrames).moduleId, null);
   // The same error object through Foundry's "error" hook.
-  assert.equal(__test__.describeThrown(wrapped), null);
+  assert.equal(__test__.describeThrown(wrapped).moduleId, null);
   // Window listeners: the event comes from this module's listener, the error from core.
-  assert.equal(__test__.describeErrorEvent({ target: {}, error: wrapped, filename: `${BASE}/scripts/foundry.mjs` }), null);
+  assert.equal(__test__.describeErrorEvent({ target: {}, error: wrapped, filename: `${BASE}/scripts/foundry.mjs` }).moduleId, null);
 
   // A module below the capture frames still counts.
   const fromModule = ["Error", own("<anonymous>", 1165), own("recordSafely", 1132), own("console.smlStartupConsoleError", 1165), frame("mod-caller"), core("Hooks.callAll", 4000)].join("\n");
   assert.equal(__test__.describeConsoleError(["module failed"], fromModule).moduleId, "mod-caller");
 
-  // End to end through the capture: nothing is recorded.
+  // End to end through the capture: recorded once and blamed on no module.
   const log = freshLog();
   let errorHook = null;
   const consoleObject = { error() {} };
@@ -214,7 +236,10 @@ test("core errors logged through Hooks.onError are never blamed on this module",
   consoleObject.error(wrapped);
   errorHook("WorldCollection#_initialize", wrapped, {});
   __test__.stopStartupErrorCapture(log);
-  assert.deepEqual(log.entries, []);
+  assert.equal(log.entries.length, 1);
+  assert.equal(log.entries[0].moduleId, null);
+  const marker = __test__.normalizeCheckMarker({ expectedIds: ["module-a"], appliedAt: 1 });
+  assert.deepEqual(__test__.evaluateStartupCheck(marker, { activeIds: ["module-a"], errors: log.entries }).startupErrors, []);
 });
 
 test("the startup log drops duplicates and stops at its limit", () => {
@@ -353,7 +378,7 @@ test("applying a profile stores the marker with the real switch before the reloa
   env.state.serverTime = 5000;
   const before = Date.now();
   const prep = __test__.normalizeProfile({ id: "prep", name: "Prep", moduleIds: ["module-b"] });
-  assert.equal(await __test__.applyProfile(prep), true);
+  assert.equal(await __test__.applyProfile(prep, { confirm: __test__.CONFIRM_MODES.NEVER }), true);
 
   const marker = __test__.readCheckMarker();
   const snapshot = __test__.getProfilesForScope(__test__.PROFILE_SCOPES.WORLD).profiles.find((profile) => profile.auto);
@@ -496,7 +521,7 @@ test("problems open the dialog and Undo applies the snapshot from before the swi
   env.state.dialogV2WaitResult = "undo";
   let result;
   try {
-    result = await __test__.runStartupCheck({ delay: 0 });
+    result = await __test__.runStartupCheck({ delay: 0, undo: (profile) => __test__.applyProfile(profile, { confirm: __test__.CONFIRM_MODES.NEVER }) });
   } finally {
     Object.defineProperty(globalThis, "performance", { configurable: true, value: originalPerformance });
   }
@@ -526,8 +551,9 @@ test("undo is offered only with a snapshot and the permission to manage modules"
   const marker = __test__.normalizeCheckMarker(setMarker({ snapshotId: "missing" }));
   const result = __test__.evaluateStartupCheck(marker, { activeIds: [] });
 
+  const undo = (profile) => __test__.applyProfile(profile, { confirm: __test__.CONFIRM_MODES.NEVER });
   env.state.dialogV2WaitResult = "undo";
-  assert.equal(await __test__.showStartupCheckDialog(marker, result), false);
+  assert.equal(await __test__.showStartupCheckDialog(marker, result, { undo }), false);
   assert.deepEqual(env.state.dialogV2WaitCalls[0].buttons.map((button) => button.action), ["ok"]);
   assert.match(env.state.dialogV2WaitCalls[0].content, /SML\.Check\.UndoMissing/);
 
@@ -541,7 +567,7 @@ test("undo is offered only with a snapshot and the permission to manage modules"
     return "undo";
   };
   try {
-    assert.equal(await __test__.showStartupCheckDialog(withSnapshot, result), false);
+    assert.equal(await __test__.showStartupCheckDialog(withSnapshot, result, { undo }), false);
   } finally {
     env.foundry.applications.api.DialogV2.wait = originalWait;
   }
@@ -549,9 +575,9 @@ test("undo is offered only with a snapshot and the permission to manage modules"
 
   setWorldProfiles([snapshot]);
   env.state.dialogV2WaitResult = "ok";
-  assert.equal(await __test__.showStartupCheckDialog(withSnapshot, result), false);
+  assert.equal(await __test__.showStartupCheckDialog(withSnapshot, result, { undo }), false);
   env.state.userCanManage = false;
-  await __test__.showStartupCheckDialog(withSnapshot, result);
+  await __test__.showStartupCheckDialog(withSnapshot, result, { undo });
   assert.deepEqual(env.state.dialogV2WaitCalls.at(-1).buttons.map((button) => button.action), ["ok"]);
 });
 

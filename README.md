@@ -1,6 +1,6 @@
-# Sephral's Module Loadouts
+# Sephral’s Module Loadouts
 
-**All modules for game night, a lean set for prep, almost nothing while you hunt a bug.** Module Loadouts saves each setup as a loadout and switches between them with one click.
+**All modules for game night, a lean set for prep, almost nothing while you hunt a bug.** Module Loadouts saves each setup as a loadout and switches between them with one click. If something breaks, it finds the module behind it.
 
 [![Foundry VTT package](https://img.shields.io/badge/Foundry%20VTT-Package%20page-fe6a1f?logo=foundryvirtualtabletop&logoColor=white)](https://foundryvtt.com/packages/sephrals-module-loadouts)
 [![Join Discord](https://img.shields.io/badge/Discord-Join%20the%20community-5865F2?logo=discord&logoColor=white)](https://discord.gg/7BjCgDYaBP)
@@ -11,19 +11,21 @@
 ## Highlights
 
 * **Save your setup:** store the active modules as a named loadout with a description and tags.
-* **Switch with one click:** apply a loadout and exactly its modules are active.
-* **See before you switch:** every loadout shows which modules it would enable, disable or cannot find.
-* **Undo included:** before every switch your current setup is saved automatically. One click takes you back.
+* **Bring your settings along:** a loadout can carry the world settings of its modules. Start a new world, apply your loadout and the modules arrive configured.
+* **See before you switch:** every loadout shows which modules it would enable, disable or cannot find, which settings would change and which modules were updated since you saved it.
+* **Undo included:** before every switch your current modules and settings are saved automatically. One click takes you back.
 * **Checked after the restart:** the next start tells you if a module of the loadout did not come up or threw errors, and offers to undo the switch right there.
-* **No broken worlds:** required dependencies are switched on for you, and missing ones stop the switch before anything breaks.
-* **One world or all of them:** keep a loadout in a single world or use it in every world of your installation.
-* **Stay organized:** tags, search, duplicates for variants and a JSON export to back up or share your loadouts.
+* **Bug hunt:** something broke and you do not know which module did it? The bug hunt switches off half of the suspects per restart, watches for your error message and names the culprit after a few steps. Your modules come back at the end.
+* **Pinned modules:** keep your favorites exactly as they are, whatever loadout you apply.
+* **No broken worlds:** required dependencies are switched on for you, and missing ones stop the switch before anything breaks. Missing modules link to their package page.
+* **One world or all of them:** keep a loadout in a single world or share it with every world, every gamemaster and every browser of your installation.
+* **Stay organized:** tags, search, duplicates for variants and a JSON export to back up or share your loadouts, with a preview on import.
 * **Right where you need it:** open the manager from Foundry's Manage Modules window or from the settings. A hotbar macro switches loadouts too.
 
 ## How it works
 
 1. Open **Manage Modules** and click the layers icon in its title bar.
-2. Save your current setup as a loadout, for example *Game Night*.
+2. Save your current setup as a loadout, for example *Game Night*, with or without its settings.
 3. Later, pick a loadout such as *Prep*, *Minimal* or *Debug* and apply it.
 
 ## Install
@@ -34,7 +36,7 @@ Foundry VTT v13 and v14 · any game system · English and German
 
 ## Learn more
 
-The [manual](MANUAL.md) explains world and installation loadouts, the undo snapshots, export and import and the macro API.
+The [manual](MANUAL.md) explains world and installation loadouts, settings in a loadout, pinned modules, the bug hunt, the undo snapshots, export and import and the macro API.
 
 Questions or ideas? Join us on [Discord](https://discord.gg/7BjCgDYaBP). Looking for more? See [all modules by Sephral](https://github.com/Sephral).
 

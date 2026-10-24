@@ -1,6 +1,6 @@
 {
   "id": "sephrals-module-loadouts",
-  "title": "Sephral's Module Loadouts",
+  "title": "Sephral’s Module Loadouts",
   "description": "Save the active modules as named loadouts for one world or the whole installation, see what would change and switch with one click. Your previous setup is saved before every switch.",
   "version": "1.0.3",
   "compatibility": {
@@ -19,6 +19,7 @@
   "styles": [
     "styles/sml.css"
   ],
+  "persistentStorage": true,
   "languages": [
     {
       "lang": "en",
