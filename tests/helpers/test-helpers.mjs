@@ -1,5 +1,7 @@
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const MODULE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 function compareVersions(left, right) {
   const leftParts = String(left ?? "0").split(".").map((value) => Number.parseInt(value, 10) || 0);
@@ -37,7 +39,7 @@ function createClassList(initial = []) {
 }
 
 export function modulePath(relativePath) {
-  const absolute = path.resolve("d:\\_Projekte\\_Foundry-Development\\FoundryVTT_Module\\sephrals-module-loadouts", relativePath);
+  const absolute = path.resolve(MODULE_ROOT, relativePath);
   return pathToFileURL(absolute).href;
 }
 
