@@ -29,6 +29,7 @@ import {
   saveCheckMarker,
   startupCapture
 } from "./startup-check.mjs";
+import { countFeature } from "./usage.mjs";
 
 export const HUNT_MODES = Object.freeze({
   ERROR: "error",
@@ -251,6 +252,7 @@ export async function startBugHunt({ mode = HUNT_MODES.MANUAL, pattern = "", kee
     descriptionKey: "SML.Hunt.SnapshotDescription"
   });
   const state = { ...draft, snapshotId: snapshot.id };
+  countFeature(MODULE_ID, "bugHuntStarted");
   await switchToStep(state);
   return state;
 }

@@ -61,6 +61,7 @@ import {
   findUnusedLibraries
 } from "./apply.mjs";
 import { openBugHuntPanel, openBugHuntStart, readHuntState } from "./bug-hunt.mjs";
+import { countFeature, markUsed } from "./usage.mjs";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 const KEEP_SETTINGS = "keep";
@@ -82,6 +83,7 @@ export function openManager() {
     ui.notifications?.error(localize("SML.Notification.ManageModulesRequired"));
     return null;
   }
+  markUsed(MODULE_ID);
   if (!managerApp) managerApp = new SMLLoadoutsManager();
   const app = managerApp;
   // The installation file may have changed in another world or browser.
@@ -506,6 +508,7 @@ export class SMLLoadoutsManager extends HandlebarsApplicationMixin(ApplicationV2
       },
       exportProfiles() {
         exportProfiles();
+        countFeature(MODULE_ID, "loadoutsExported");
       },
       importProfiles() {
         this.element?.querySelector('[data-role="import-file"]')?.click();
@@ -710,6 +713,8 @@ export class SMLLoadoutsManager extends HandlebarsApplicationMixin(ApplicationV2
       return true;
     });
     if (!saved) return;
+    countFeature(MODULE_ID, "loadoutSaved");
+    if (captured.settings) countFeature(MODULE_ID, "loadoutSettings");
     notifySettingsCapture(result.settings, captured);
     ui.notifications?.info(localizeHtml("SML.Notification.ProfileSaved", { name: profile.name }));
     this.render();
@@ -791,7 +796,8 @@ export class SMLLoadoutsManager extends HandlebarsApplicationMixin(ApplicationV2
   async _onApply(profileId) {
     const profile = findProfileById(profileId);
     if (!profile) return;
-    await this._guard(() => applyProfile(profile));
+    const applied = await this._guard(() => applyProfile(profile));
+    if (applied) countFeature(MODULE_ID, "loadoutApplied");
     this.render();
   }
 
@@ -817,6 +823,7 @@ export class SMLLoadoutsManager extends HandlebarsApplicationMixin(ApplicationV2
     const ids = await choosePinnedModules();
     if (!ids) return;
     const saved = await setPinnedModuleIds(ids);
+    countFeature(MODULE_ID, "pinnedSaved");
     ui.notifications?.info(localize("SML.Notification.PinnedSaved", { count: saved.length }));
     this.render();
   }
@@ -843,7 +850,8 @@ export class SMLLoadoutsManager extends HandlebarsApplicationMixin(ApplicationV2
     }
 
     try {
-      await importProfilesFromFile(file, { choose: chooseImport });
+      const imported = await importProfilesFromFile(file, { choose: chooseImport });
+      if (imported) countFeature(MODULE_ID, "loadoutsImported");
       this.render();
     } catch (error) {
       ui.notifications?.error(localizeHtml("SML.Notification.ImportFailed", {

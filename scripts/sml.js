@@ -8,6 +8,7 @@ import * as startupCheck from "./startup-check.mjs";
 import * as apply from "./apply.mjs";
 import * as bugHunt from "./bug-hunt.mjs";
 import * as manager from "./manager.mjs";
+import { countFeature, registerUsage } from "./usage.mjs";
 
 const {
   BUG_HUNT_SETTING,
@@ -145,6 +146,11 @@ Hooks.once("init", () => {
     restricted: true
   });
 
+  registerUsage(MODULE_ID, {
+    features: ["loadoutApplied", "loadoutSaved", "loadoutSettings", "loadoutsExported", "loadoutsImported", "pinnedSaved", "bugHuntStarted", "checkUndo"],
+    settings: [UI_THEME_SETTING, UI_LANGUAGE_SETTING, CHECK_DISPLAY_SETTING]
+  });
+
   game.keybindings.register(MODULE_ID, "openManager", {
     name: localize("SML.Settings.Menu.Label"),
     hint: localize("SML.Settings.Menu.Hint"),
@@ -183,7 +189,10 @@ Hooks.once("ready", async () => {
   bugHunt.resumeBugHunt();
   void startupCheck.runStartupCheck({
     // The gamemaster chose Undo in the check window already, so no second question.
-    undo: (snapshot) => apply.applyProfile(snapshot, { confirm: core.CONFIRM_MODES.NEVER }),
+    undo: (snapshot) => {
+      countFeature(MODULE_ID, "checkUndo");
+      return apply.applyProfile(snapshot, { confirm: core.CONFIRM_MODES.NEVER });
+    },
     hunt: (errorText) => bugHunt.openBugHuntStart({ pattern: errorText })
   });
 });

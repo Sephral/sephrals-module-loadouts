@@ -139,6 +139,8 @@ test("registers settings, menu, keybinding, and ready API", async () => {
     "pinnedModules",
     "uiLanguage",
     "uiTheme",
+    // Hidden consent setting of the shared usage library (scripts/usage.mjs).
+    "usage",
     "worldProfiles"
   ]);
   const displaySetting = env.state.registerCalls.find((entry) => entry.key === __test__.CHECK_DISPLAY_SETTING);

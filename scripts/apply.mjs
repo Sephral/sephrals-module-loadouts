@@ -35,6 +35,7 @@ import {
 } from "./store.mjs";
 import { renderPreflightSection } from "./render.mjs";
 import { buildCheckMarker, saveCheckMarker } from "./startup-check.mjs";
+import { countFeature } from "./usage.mjs";
 
 export function asTitleList(moduleIds) {
   if (!moduleIds.length) return "-";
@@ -398,7 +399,9 @@ export async function applyProfile(profile, { confirm = CONFIRM_MODES.ALWAYS, ap
 export async function apiApply(idOrName, { confirm = true, settings = true } = {}) {
   const profile = findProfileOrWarn(idOrName);
   if (!profile) return false;
-  return applyProfile(profile, { confirm: confirm ? CONFIRM_MODES.ALWAYS : CONFIRM_MODES.NEVER, applySettings: settings !== false });
+  const applied = await applyProfile(profile, { confirm: confirm ? CONFIRM_MODES.ALWAYS : CONFIRM_MODES.NEVER, applySettings: settings !== false });
+  if (applied) countFeature(MODULE_ID, "loadoutApplied");
+  return applied;
 }
 
 // Same as the manager's save button, but a profile with the same name in that scope is replaced without asking.
