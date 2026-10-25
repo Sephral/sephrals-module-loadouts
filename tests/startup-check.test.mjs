@@ -8,7 +8,7 @@ const { __test__ } = await import(modulePath("scripts/sml.js"));
 
 const MARKER_KEY = `sephrals-module-loadouts.${__test__.CHECK_MARKER_SETTING}`;
 const DISPLAY_KEY = `sephrals-module-loadouts.${__test__.CHECK_DISPLAY_SETTING}`;
-const BASE = "http://localhost:30013";
+const BASE = "http://localhost:30000";
 
 function frame(moduleId, file = "scripts/main.js") {
   return `    at fn (${BASE}/modules/${moduleId}/${file}:10:5)`;
