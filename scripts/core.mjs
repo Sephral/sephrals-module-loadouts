@@ -11,6 +11,9 @@ export const PINNED_MODULES_SETTING = "pinnedModules";
 export const INSTALLATION_REVISION_SETTING = "installationRevision";
 export const INSTALLATION_MIGRATED_SETTING = "installationMigrated";
 export const BUG_HUNT_SETTING = "bugHunt";
+export const ACKNOWLEDGED_VERSIONS_SETTING = "acknowledgedVersions";
+// The Foundry version the module was last verified against. Raise it with every release tested on a newer one.
+export const TESTED_VERSIONS = Object.freeze({ core: "14.369" });
 export const STORAGE_VERSION = 2;
 export const HOTKEY_PRECEDENCE = CONST.KEYBINDING_PRECEDENCE.NORMAL;
 export const SUPPORTED_UI_LANGUAGES = Object.freeze(["en", "de"]);

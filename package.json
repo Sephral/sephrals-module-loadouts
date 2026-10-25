@@ -1,10 +1,10 @@
 {
   "name": "sephrals-module-loadouts",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check scripts/apply.mjs && node --check scripts/bug-hunt.mjs && node --check scripts/core.mjs && node --check scripts/loadout-settings.mjs && node --check scripts/manager.mjs && node --check scripts/render.mjs && node --check scripts/sml.js && node --check scripts/startup-check.mjs && node --check scripts/store.mjs",
+    "check": "node --check scripts/apply.mjs && node --check scripts/bug-hunt.mjs && node --check scripts/core.mjs && node --check scripts/loadout-settings.mjs && node --check scripts/manager.mjs && node --check scripts/render.mjs && node --check scripts/selftest.mjs && node --check scripts/sml.js && node --check scripts/startup-check.mjs && node --check scripts/store.mjs",
     "check:manifest": "node build/validate-manifest.mjs",
     "test": "node --test",
     "test:coverage": "node --test --experimental-test-coverage",

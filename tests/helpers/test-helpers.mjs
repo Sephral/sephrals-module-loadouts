@@ -231,6 +231,10 @@ export function createTestEnvironment() {
     modules: new Map(),
     world: { id: "test-world", title: "Test World" },
     userCanManage: true,
+    userCanUpload: true,
+    coreVersion: "14.369",
+    chatMessages: [],
+    keybindingActions: new Map(),
     lang: "en",
     localizations: new Map()
   };
@@ -384,8 +388,9 @@ export function createTestEnvironment() {
       },
       sidebar: {
         apps: {
-          ModuleManagement: {
-            SETTING: "moduleConfiguration"
+          // A class, like Foundry's: its name gives the render hook "renderModuleManagement".
+          ModuleManagement: class ModuleManagement {
+            static SETTING = "moduleConfiguration";
           }
         }
       },
@@ -435,6 +440,9 @@ export function createTestEnvironment() {
       localize(key) {
         return state.localizations.get(key) ?? key;
       },
+      has(key) {
+        return state.localizations.has(key);
+      },
       format(key, data) {
         const template = state.localizations.get(key) ?? key;
         return Object.entries(data ?? {}).reduce((result, [token, value]) => result.replaceAll(`{${token}}`, value), template);
@@ -468,8 +476,12 @@ export function createTestEnvironment() {
       }
     },
     keybindings: {
+      get actions() {
+        return state.keybindingActions;
+      },
       register(moduleId, key, data) {
         state.keybindingCalls.push({ moduleId, key, data });
+        state.keybindingActions.set(`${moduleId}.${key}`, data);
       }
     },
     socket: {
@@ -479,13 +491,18 @@ export function createTestEnvironment() {
     },
     modules: state.modules,
     world: state.world,
+    get version() {
+      return state.coreVersion;
+    },
     user: {
       id: "gm-user",
       name: "Gamemaster",
       isGM: true,
       active: true,
       can(permission) {
-        return permission === "SETTINGS_MODIFY" ? state.userCanManage : false;
+        if (permission === "SETTINGS_MODIFY") return state.userCanManage;
+        if (permission === "FILES_UPLOAD") return state.userCanUpload;
+        return false;
       }
     },
     users: {
@@ -548,6 +565,14 @@ export function createTestEnvironment() {
     PACKAGE_AVAILABILITY_CODES: PACKAGE_CODES
   };
   globalThis.CONFIG = { Setting: { documentClass: SettingDocument } };
+  globalThis.ChatMessage = {
+    implementation: {
+      async create(data) {
+        state.chatMessages.push(data);
+        return data;
+      }
+    }
+  };
   globalThis.Hooks = hooks;
   globalThis.foundry = foundry;
   globalThis.game = game;
@@ -602,6 +627,10 @@ export function createTestEnvironment() {
       state.world = { id: "test-world", title: "Test World" };
       game.world = state.world;
       state.userCanManage = true;
+      state.userCanUpload = true;
+      state.coreVersion = "14.369";
+      state.chatMessages = [];
+      state.keybindingActions = new Map();
       state.lang = "en";
       state.localizations = new Map([
         ["SML.Settings.Language.Name", "Language"],

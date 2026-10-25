@@ -8,9 +8,11 @@ import * as startupCheck from "./startup-check.mjs";
 import * as apply from "./apply.mjs";
 import * as bugHunt from "./bug-hunt.mjs";
 import * as manager from "./manager.mjs";
+import * as selfTest from "./selftest.mjs";
 import { countFeature, registerUsage } from "./usage.mjs";
 
 const {
+  ACKNOWLEDGED_VERSIONS_SETTING,
   BUG_HUNT_SETTING,
   CHECK_DISPLAY_MODES,
   CHECK_DISPLAY_SETTING,
@@ -132,6 +134,14 @@ Hooks.once("init", () => {
     default: {}
   });
 
+  // The newest Foundry version the gamemaster was told about, so the notice comes once per version.
+  game.settings.register(MODULE_ID, ACKNOWLEDGED_VERSIONS_SETTING, {
+    scope: "client",
+    config: false,
+    type: String,
+    default: ""
+  });
+
   // A running bug hunt holds the error capture. Without it and without a pending check there is nothing
   // to attribute, so the capture ends right here.
   bugHunt.prepareBugHuntCapture();
@@ -146,8 +156,17 @@ Hooks.once("init", () => {
     restricted: true
   });
 
+  game.settings.registerMenu(MODULE_ID, "selfTest", {
+    name: localize("SML.SelfTest.Title"),
+    label: localize("SML.SelfTest.Run"),
+    hint: localize("SML.SelfTest.Hint"),
+    icon: "fa-solid fa-stethoscope",
+    type: selfTest.SMLSelfTestMenu,
+    restricted: true
+  });
+
   registerUsage(MODULE_ID, {
-    features: ["loadoutApplied", "loadoutSaved", "loadoutSettings", "loadoutsExported", "loadoutsImported", "pinnedSaved", "bugHuntStarted", "checkUndo"],
+    features: ["loadoutApplied", "loadoutSaved", "loadoutSettings", "loadoutsExported", "loadoutsImported", "pinnedSaved", "bugHuntStarted", "checkUndo", "selfTestRun"],
     settings: [UI_THEME_SETTING, UI_LANGUAGE_SETTING, CHECK_DISPLAY_SETTING]
   });
 
@@ -186,6 +205,7 @@ Hooks.once("ready", async () => {
       console.warn(`${MODULE_ID} |`, error);
     }
   }
+  selfTest.noticeNewVersions();
   bugHunt.resumeBugHunt();
   void startupCheck.runStartupCheck({
     // The gamemaster chose Undo in the check window already, so no second question.
@@ -212,7 +232,8 @@ function createApi() {
     compare: apply.apiCompare,
     getPinned: store.getPinnedModuleIds,
     setPinned: store.setPinnedModuleIds,
-    bugHunt: (options = {}) => bugHunt.readHuntState() ? bugHunt.openBugHuntPanel() : bugHunt.openBugHuntStart(options)
+    bugHunt: (options = {}) => bugHunt.readHuntState() ? bugHunt.openBugHuntPanel() : bugHunt.openBugHuntStart(options),
+    runSelfTest: selfTest.runSelfTest
   };
 }
 
@@ -224,6 +245,7 @@ export const __test__ = {
   ...apply,
   ...bugHunt,
   ...manager,
+  ...selfTest,
   refreshLocalizedUi,
   createApi
 };

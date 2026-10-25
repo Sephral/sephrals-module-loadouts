@@ -134,6 +134,18 @@ Good to know:
 
 Loadouts without a scope are imported as installation loadouts.
 
+## Self test
+
+**Run self test** in the module settings checks what the manager relies on in Foundry, without changing anything. It covers:
+
+* the module configuration and the reload prompt
+* the button in Manage Modules and the hotkey
+* a loadout of the active modules, which has to match the active modules
+* the storage of world settings and a round trip of the settings of the active modules
+* the installation file and your permissions to upload files and to manage modules
+
+The result appears as a notice and as a chat message only you see. Run it after every Foundry update. When Foundry is newer than the version the module was verified with, the gamemaster gets a notice once.
+
 ## API for macros
 
 The module API is available at `game.modules.get("sephrals-module-loadouts").api`. Loadouts can be named by id or by name. Names ignore case. If a world loadout and an installation loadout share a name, the world loadout is used.
@@ -148,6 +160,7 @@ The module API is available at `game.modules.get("sephrals-module-loadouts").api
 | `setPinned(ids)` | Pins exactly these modules. Returns the stored ids. |
 | `bugHunt({ pattern })` | Opens the bug hunt, with an error text filled in, or the window of the running hunt. |
 | `openManager()` | Opens the manager window. |
+| `runSelfTest({ report = true })` | Runs the self test. Returns `{ problems, checks }`. `report: false` leaves out the chat message. |
 
 `apply`, `saveCurrent` and the bug hunt need the permission to manage modules, just like the manager. Missing or incompatible required dependencies still stop an apply.
 

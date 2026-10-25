@@ -130,6 +130,7 @@ test.after(() => {
 test("registers settings, menu, keybinding, and ready API", async () => {
   await env.hooks.trigger("init");
   assert.deepEqual(env.state.registerCalls.map((entry) => entry.key).sort(), [
+    "acknowledgedVersions",
     "bugHunt",
     "checkResultDisplay",
     "globalProfiles",
@@ -139,7 +140,7 @@ test("registers settings, menu, keybinding, and ready API", async () => {
     "pinnedModules",
     "uiLanguage",
     "uiTheme",
-    // Hidden consent setting of the shared usage library (scripts/usage.mjs).
+    // Hidden consent setting of the usage statistics (scripts/usage.mjs).
     "usage",
     "worldProfiles"
   ]);
@@ -158,8 +159,11 @@ test("registers settings, menu, keybinding, and ready API", async () => {
     de: "Deutsch",
     en: "English"
   });
-  assert.equal(env.state.registerMenuCalls.length, 1);
+  assert.equal(env.state.registerMenuCalls.length, 2);
   assert.equal(env.state.registerMenuCalls[0].data.type, __test__.SMLSettingsMenu);
+  assert.equal(env.state.registerMenuCalls[1].key, "selfTest");
+  assert.equal(env.state.registerMenuCalls[1].data.type, __test__.SMLSelfTestMenu);
+  assert.equal(env.state.registerMenuCalls[1].data.restricted, true);
   assert.equal(env.state.keybindingCalls.length, 1);
   assert.equal(env.state.keybindingCalls[0].data.restricted, true);
 
@@ -168,7 +172,7 @@ test("registers settings, menu, keybinding, and ready API", async () => {
 
   await env.hooks.trigger("ready");
   const api = env.game.modules.get(__test__.MODULE_ID).api;
-  assert.deepEqual(Object.keys(api).sort(), ["apply", "bugHunt", "compare", "getPinned", "getProfiles", "openManager", "saveCurrent", "setPinned"]);
+  assert.deepEqual(Object.keys(api).sort(), ["apply", "bugHunt", "compare", "getPinned", "getProfiles", "openManager", "runSelfTest", "saveCurrent", "setPinned"]);
   assert.equal(Object.values(api).every((entry) => typeof entry === "function"), true);
 
   const manager = api.openManager();
