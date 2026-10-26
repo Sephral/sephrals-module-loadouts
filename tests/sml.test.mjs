@@ -142,6 +142,7 @@ test("registers settings, menu, keybinding, and ready API", async () => {
     "uiTheme",
     // Hidden consent setting of the usage statistics (scripts/usage.mjs).
     "usage",
+    "usageState",
     "worldProfiles"
   ]);
   const displaySetting = env.state.registerCalls.find((entry) => entry.key === __test__.CHECK_DISPLAY_SETTING);
