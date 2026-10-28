@@ -9,6 +9,8 @@ import * as apply from "./apply.mjs";
 import * as bugHunt from "./bug-hunt.mjs";
 import * as manager from "./manager.mjs";
 import * as selfTest from "./selftest.mjs";
+import { registerDebug } from "./debug.mjs";
+import { saveDebugFile } from "./debug-file.mjs";
 import { countFeature, registerUsage } from "./usage.mjs";
 
 const {
@@ -165,6 +167,8 @@ Hooks.once("init", () => {
     restricted: true
   });
 
+  registerDebug();
+
   registerUsage(MODULE_ID, {
     features: ["loadoutApplied", "loadoutSaved", "loadoutSettings", "loadoutsExported", "loadoutsImported", "pinnedSaved", "bugHuntStarted", "checkUndo", "selfTestRun"],
     settings: [UI_THEME_SETTING, UI_LANGUAGE_SETTING, CHECK_DISPLAY_SETTING]
@@ -233,7 +237,9 @@ function createApi() {
     getPinned: store.getPinnedModuleIds,
     setPinned: store.setPinnedModuleIds,
     bugHunt: (options = {}) => bugHunt.readHuntState() ? bugHunt.openBugHuntPanel() : bugHunt.openBugHuntStart(options),
-    runSelfTest: selfTest.runSelfTest
+    runSelfTest: selfTest.runSelfTest,
+    // One file for all of Sephral's modules, without a message id about their latest picture
+    saveDebugFile: (messageId) => saveDebugFile(messageId ?? null, { moduleId: MODULE_ID })
   };
 }
 

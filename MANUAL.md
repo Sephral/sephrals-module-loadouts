@@ -159,6 +159,12 @@ Loadouts without a scope are imported as installation loadouts.
 
 The result appears as a notice and as a chat message only you see. Run it after every Foundry update. When Foundry is newer than the version the module was verified with, the gamemaster gets a notice once.
 
+## Debug file
+
+For bug reports, the GM saves one file about all of Sephral’s modules in this world: `Save debug file` in the module settings, or `Save Debug File (Sephral’s Modules)` in the context menu of a chat message. It holds the versions of Foundry, the system and the active modules, the settings of the modules and what they recorded, for Module Loadouts how many loadouts there are and where they are kept, a pending check after the restart and the state of a running bug hunt. The loadouts themselves are left out. Macros call `game.modules.get("sephrals-module-loadouts").api.saveDebugFile()`.
+
+The file contains chat text and whispers. Check it before you share it.
+
 ## API for macros
 
 The module API is available at `game.modules.get("sephrals-module-loadouts").api`. Loadouts can be named by id or by name. Names ignore case. If a world loadout and an installation loadout share a name, the world loadout is used.
@@ -174,6 +180,7 @@ The module API is available at `game.modules.get("sephrals-module-loadouts").api
 | `bugHunt({ pattern })` | Opens the bug hunt, with an error text filled in, or the window of the running hunt. |
 | `openManager()` | Opens the manager window. |
 | `runSelfTest({ report = true })` | Runs the self test. Returns `{ problems, checks }`. `report: false` leaves out the chat message. |
+| `saveDebugFile()` | Saves the debug file of Sephral’s modules (GM). See [Debug file](#debug-file). |
 
 `apply`, `saveCurrent` and the bug hunt need the permission to manage modules, just like the manager. Missing or incompatible required dependencies still stop an apply.
 

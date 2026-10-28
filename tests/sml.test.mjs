@@ -160,11 +160,15 @@ test("registers settings, menu, keybinding, and ready API", async () => {
     de: "Deutsch",
     en: "English"
   });
-  assert.equal(env.state.registerMenuCalls.length, 2);
+  assert.equal(env.state.registerMenuCalls.length, 3);
   assert.equal(env.state.registerMenuCalls[0].data.type, __test__.SMLSettingsMenu);
   assert.equal(env.state.registerMenuCalls[1].key, "selfTest");
   assert.equal(env.state.registerMenuCalls[1].data.type, __test__.SMLSelfTestMenu);
   assert.equal(env.state.registerMenuCalls[1].data.restricted, true);
+  // The shared debug file: the button and the part of Module Loadouts
+  assert.equal(env.state.registerMenuCalls[2].key, "debugFile");
+  assert.equal(env.state.registerMenuCalls[2].data.restricted, true);
+  assert.equal(globalThis.sephralsDebugFiles.providers.has(__test__.MODULE_ID), true);
   assert.equal(env.state.keybindingCalls.length, 1);
   assert.equal(env.state.keybindingCalls[0].data.restricted, true);
 
@@ -173,7 +177,7 @@ test("registers settings, menu, keybinding, and ready API", async () => {
 
   await env.hooks.trigger("ready");
   const api = env.game.modules.get(__test__.MODULE_ID).api;
-  assert.deepEqual(Object.keys(api).sort(), ["apply", "bugHunt", "compare", "getPinned", "getProfiles", "openManager", "runSelfTest", "saveCurrent", "setPinned"]);
+  assert.deepEqual(Object.keys(api).sort(), ["apply", "bugHunt", "compare", "getPinned", "getProfiles", "openManager", "runSelfTest", "saveCurrent", "saveDebugFile", "setPinned"]);
   assert.equal(Object.values(api).every((entry) => typeof entry === "function"), true);
 
   const manager = api.openManager();
@@ -1135,4 +1139,19 @@ test("editing a profile that another gamemaster deleted meanwhile does not bring
   await manager._onEdit("profile-1");
   assert.equal(__test__.getAllProfiles().length, 0);
   assert.equal(env.state.notifications.warn.at(-1), "not found Original");
+});
+
+test("the debug file part counts the loadouts and leaves their contents out", async () => {
+  await env.hooks.trigger("init");
+  const { describeState } = await import(modulePath("scripts/debug.mjs"));
+  setStore("worldProfiles", [
+    __test__.normalizeProfile({ id: "a", name: "Alpha", scope: "world", moduleIds: ["secret-module"] }),
+    __test__.normalizeProfile({ id: "b", name: "Undo", scope: "world", moduleIds: ["secret-module"], auto: true })
+  ]);
+  const state = describeState();
+  assert.deepEqual(state.loadouts.world, { total: 2, auto: 1, withSettings: 0 });
+  assert.equal(JSON.stringify(state).includes("secret-module"), false);
+  assert.equal(state.pendingCheck, null);
+  assert.equal(state.bugHunt, null);
+  assert.deepEqual(globalThis.sephralsDebugFiles.providers.get(__test__.MODULE_ID).omitSettings, ["worldProfiles", "globalProfiles"]);
 });

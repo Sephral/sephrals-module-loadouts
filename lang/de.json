@@ -234,5 +234,10 @@
   "SML.SelfTest.SettingsRoundTrip": "Einstellungen der aktiven Module würden sich ändern, wenn ein Loadout sie mitnimmt.",
   "SML.SelfTest.InstallationRead": "Die Installations-Loadouts lassen sich nicht lesen ({path}).",
   "SML.SelfTest.InstallationUpload": "Deine Rolle darf keine Dateien hochladen, daher lassen sich Installations-Loadouts nicht speichern.",
-  "SML.SelfTest.Permission": "Deine Rolle darf keine Module konfigurieren, daher kannst du die Loadouts ansehen, aber nicht anwenden."
+  "SML.SelfTest.Permission": "Deine Rolle darf keine Module konfigurieren, daher kannst du die Loadouts ansehen, aber nicht anwenden.",
+  "SML.Debug.Title": "Debug-Datei",
+  "SML.Debug.Save": "Debug-Datei speichern",
+  "SML.Debug.Hint": "Speichert eine Datei für Fehlerberichte über alle Module von Sephral in dieser Welt: Versionen, Einstellungen und was die Module aufgezeichnet haben, etwa die letzten Chatnachrichten, die sie gelesen haben. Sie enthält Chattext und Flüsternachrichten, prüfe sie vor dem Teilen.",
+  "SML.Debug.Entry": "Debug-Datei speichern (Sephral’s Module)",
+  "SML.Debug.Saved": "Debug-Datei {file} gespeichert. Sie enthält Chattext und Flüsternachrichten, prüfe sie vor dem Teilen."
 }

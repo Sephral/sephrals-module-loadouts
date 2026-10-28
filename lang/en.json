@@ -234,5 +234,10 @@
   "SML.SelfTest.SettingsRoundTrip": "Settings of the active modules would change when a loadout takes them along.",
   "SML.SelfTest.InstallationRead": "The installation loadouts cannot be read ({path}).",
   "SML.SelfTest.InstallationUpload": "Your role may not upload files, so installation loadouts cannot be saved.",
-  "SML.SelfTest.Permission": "Your role may not configure modules, so you can look at the loadouts but not apply them."
+  "SML.SelfTest.Permission": "Your role may not configure modules, so you can look at the loadouts but not apply them.",
+  "SML.Debug.Title": "Debug file",
+  "SML.Debug.Save": "Save debug file",
+  "SML.Debug.Hint": "Saves one file for bug reports about all of Sephral’s modules in this world: versions, settings and what the modules recorded, such as the latest chat messages they read. It contains chat text and whispers, check it before you share it.",
+  "SML.Debug.Entry": "Save Debug File (Sephral’s Modules)",
+  "SML.Debug.Saved": "Debug file {file} saved. It contains chat text and whispers, check it before you share it."
 }
