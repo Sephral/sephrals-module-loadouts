@@ -7,6 +7,7 @@ import {
   canManageModules,
   escapeHtml,
   formatList,
+  formatModuleList,
   getCurrentActiveModuleIds,
   getCurrentModuleConfiguration,
   getEnabledModuleIdsFromConfiguration,
@@ -265,10 +266,12 @@ function renderSettingsSection(changes) {
 }
 
 // Asks before every switch and lists what really happens: modules, dependencies, settings and warnings.
-export async function confirmProfileChanges(profile, preflight, { enableIds, disableIds, settingsChanges = [], pinnedKept = [] }) {
+// "notes" are extra HTML parts below the snapshot line, already escaped.
+export async function confirmProfileChanges(profile, preflight, { enableIds, disableIds, settingsChanges = [], pinnedKept = [], notes = [] }) {
   const changedVersions = findChangedVersions(profile).map((entry) => `${entry.title}: ${entry.from} → ${entry.to}`);
   const parts = [
     `<p>${localize("SML.Dialog.ConfirmApply.Snapshot")}</p>`,
+    ...notes,
     renderPreflightSection(localize("SML.Dialog.ConfirmApply.Enable"), enableIds.map(moduleTitle)),
     renderPreflightSection(localize("SML.Dialog.ConfirmApply.Disable"), disableIds.map(moduleTitle)),
     renderPreflightSection(localize("SML.Dialog.ConfirmApply.Pinned"), pinnedKept.map(moduleTitle)),
@@ -317,13 +320,16 @@ export async function writeModuleConfiguration(configuration, { reload = "confir
   }
 }
 
-export async function applyProfile(profile, { confirm = CONFIRM_MODES.ALWAYS, applySettings = true } = {}) {
+// "pinnedIds" replaces the pinned modules for this switch, "notes" go into the dialog and "beforeSwitch" runs
+// after the confirmation, before anything is written (applyWithout saves its loadout there). When it returns
+// false, nothing is switched.
+export async function applyProfile(profile, { confirm = CONFIRM_MODES.ALWAYS, applySettings = true, pinnedIds = getPinnedModuleIds(), notes = [], beforeSwitch = null } = {}) {
   if (!canManageModules()) {
     ui.notifications?.error(localize("SML.Notification.ManageModulesRequired"));
     return false;
   }
 
-  const preflight = collectProfilePreflight(profile);
+  const preflight = collectProfilePreflight(profile, { pinnedIds });
   if (preflight.blockingDependencies.length) {
     ui.notifications?.error(localizeHtml("SML.Notification.BlockingDependencies", {
       details: formatList(preflight.blockingDependencies)
@@ -347,7 +353,8 @@ export async function applyProfile(profile, { confirm = CONFIRM_MODES.ALWAYS, ap
       enableIds: newIds.filter((id) => !oldIds.includes(id)),
       disableIds: oldIds.filter((id) => !newIds.includes(id)),
       settingsChanges,
-      pinnedKept: buildComparison(profile).pinnedKept
+      pinnedKept: buildComparison(profile, { pinnedIds }).pinnedKept,
+      notes
     });
     if (!answer.confirmed) return false;
     if (!answer.applySettings) settingsChanges = [];
@@ -356,6 +363,8 @@ export async function applyProfile(profile, { confirm = CONFIRM_MODES.ALWAYS, ap
       return false;
     }
   }
+
+  if (beforeSwitch && (await beforeSwitch()) === false) return false;
 
   // Saved before the reload prompt so a quick reload cannot skip them.
   const snapshot = await saveAutoSnapshot(profile, { settings: captureSettingsBeforeChanges(settingsChanges) });
@@ -445,4 +454,63 @@ export function apiCompare(idOrName) {
   const { toEnable, toDisable, missing } = buildComparison(profile);
   const settings = collectSettingsChanges(profile.settings).map((change) => change.key);
   return { toEnable, toDisable, missing, settings };
+}
+
+// The active modules without the named ones and without the active modules that need one of them, directly or
+// through others. Module Loadouts itself always stays.
+export function planWithout(moduleIds, activeIds = getCurrentActiveModuleIds()) {
+  const active = new Set(activeIds);
+  const named = Array.from(new Set(Array.from(moduleIds ?? []).map((id) => String(id ?? "").trim())))
+    .filter((id) => id && id !== MODULE_ID && active.has(id));
+  const dependents = activeIds.filter((id) => {
+    if (id === MODULE_ID || named.includes(id)) return false;
+    const needs = withRequiredModules([id]);
+    return named.some((namedId) => needs.has(namedId));
+  });
+  const off = new Set([...named, ...dependents]);
+  return { named, dependents, moduleIds: activeIds.filter((id) => !off.has(id)) };
+}
+
+export function withoutName(namedIds) {
+  return namedIds.length <= 3
+    ? localize("SML.Without.Name", { modules: formatModuleList(namedIds) })
+    : localize("SML.Without.NameCount", { count: namedIds.length });
+}
+
+// Macro entry point for "test without these modules": switches the named modules off (also when pinned) together
+// with the modules that need them, everything else stays. With saveAs the current modules are saved as a world
+// loadout of that name first, after the confirmation, so a later apply of it switches back.
+export async function apiApplyWithout(moduleIds, { confirm = true, saveAs = "" } = {}) {
+  if (!canManageModules()) {
+    ui.notifications?.error(localize("SML.Notification.ManageModulesRequired"));
+    return false;
+  }
+
+  const plan = planWithout(moduleIds);
+  if (!plan.named.length) {
+    ui.notifications?.info(localize("SML.Notification.NothingToSwitchOff"));
+    return false;
+  }
+
+  const off = new Set([...plan.named, ...plan.dependents]);
+  const saveName = String(saveAs ?? "").trim();
+  const notes = [];
+  if (saveName) notes.push(`<p>${localizeHtml("SML.Dialog.ConfirmApply.SaveAs", { name: saveName })}</p>`);
+  notes.push(renderPreflightSection(localize("SML.Dialog.ConfirmApply.Dependents"), plan.dependents.map(moduleTitle)));
+
+  const profile = createCurrentProfile({ name: withoutName(plan.named), moduleIds: plan.moduleIds });
+  const applied = await applyProfile(profile, {
+    confirm: confirm ? CONFIRM_MODES.ALWAYS : CONFIRM_MODES.NEVER,
+    applySettings: false,
+    pinnedIds: getPinnedModuleIds().filter((id) => !off.has(id)),
+    notes: notes.filter(Boolean),
+    // Without the saved loadout there is no way back besides the snapshot, so a failed save stops the switch.
+    beforeSwitch: saveName
+      ? async () => Boolean(await apiSaveCurrent(saveName, {
+        description: localize("SML.Without.SavedDescription", { modules: formatModuleList(Array.from(off)) })
+      }))
+      : null
+  });
+  if (applied) countFeature(MODULE_ID, "loadoutApplied");
+  return applied;
 }

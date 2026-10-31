@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -11,15 +11,17 @@ const moduleJsonPath = path.join(rootDir, "module.json");
 const releaseRoot = path.join(rootDir, ".release");
 const packageDir = path.join(releaseRoot, "package");
 
-const filesToCopy = [
-  "LICENSE.md",
-  "MANUAL.md",
-  "README.md",
-  "lang",
-  "scripts",
-  "styles",
-  "templates"
-];
+const optionalEntries = ["templates"];
+const requiredEntries = ["LICENSE.md", "MANUAL.md", "README.md", "lang", "scripts", "styles"];
+
+async function pathExists(relativePath) {
+  try {
+    await access(path.join(rootDir, relativePath));
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function getRepositorySlug(moduleManifest) {
   if (process.env.GITHUB_REPOSITORY) return process.env.GITHUB_REPOSITORY;
@@ -47,8 +49,14 @@ if (!moduleId) throw new Error("module.json is missing an id.");
 await rm(releaseRoot, { recursive: true, force: true });
 await mkdir(packageDir, { recursive: true });
 
-for (const entry of filesToCopy) {
+for (const entry of requiredEntries) {
   await cp(path.join(rootDir, entry), path.join(packageDir, entry), { recursive: true });
+}
+
+for (const entry of optionalEntries) {
+  if (await pathExists(entry)) {
+    await cp(path.join(rootDir, entry), path.join(packageDir, entry), { recursive: true });
+  }
 }
 
 const releaseManifest = {

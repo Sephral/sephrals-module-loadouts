@@ -11,6 +11,7 @@ import * as manager from "./manager.mjs";
 import * as selfTest from "./selftest.mjs";
 import { registerDebug } from "./debug.mjs";
 import { saveDebugFile } from "./debug-file.mjs";
+import { registerHubModule } from "./hub.mjs";
 import { countFeature, registerUsage } from "./usage.mjs";
 
 const {
@@ -25,6 +26,7 @@ const {
   INSTALLATION_REVISION_SETTING,
   MODULE_ID,
   PINNED_MODULES_SETTING,
+  TESTED_VERSIONS,
   UI_LANGUAGE_SETTING,
   UI_THEMES,
   UI_THEME_SETTING,
@@ -35,6 +37,8 @@ const {
 } = core;
 
 Hooks.once("init", () => {
+  registerHubModule({ moduleId: MODULE_ID, tested: TESTED_VERSIONS });
+
   game.settings.register(MODULE_ID, WORLD_PROFILES_SETTING, {
     scope: "world",
     config: false,
@@ -232,6 +236,7 @@ function createApi() {
     openManager: manager.openManager,
     getProfiles: store.getAllProfiles,
     apply: apply.apiApply,
+    applyWithout: apply.apiApplyWithout,
     saveCurrent: apply.apiSaveCurrent,
     compare: apply.apiCompare,
     getPinned: store.getPinnedModuleIds,

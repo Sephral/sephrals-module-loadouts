@@ -165,6 +165,10 @@ For bug reports, the GM saves one file about all of Sephral’s modules in this 
 
 The file contains chat text and whispers. Check it before you share it.
 
+## Sephral’s Modules
+
+The first button in the module settings, *Sephral’s Modules* (GMs only), opens one window for all of Sephral's modules in the world: the version, self test, settings, manual and demo video of each, a button that switches on an installed module that is off (Foundry then reloads the world for everyone), and the debug file. Below, *More from Sephral* lists other modules that fit the game system of the world, shown only after a click, each with its demo video. The list is part of the module. Only a video you start is loaded, from the module page on GitHub.
+
 ## API for macros
 
 The module API is available at `game.modules.get("sephrals-module-loadouts").api`. Loadouts can be named by id or by name. Names ignore case. If a world loadout and an installation loadout share a name, the world loadout is used.
@@ -172,6 +176,7 @@ The module API is available at `game.modules.get("sephrals-module-loadouts").api
 | Function | What it does |
 | --- | --- |
 | `apply(idOrName, { confirm = true, settings = true })` | Applies a loadout. It asks first unless `confirm` is `false`. `settings: false` leaves the saved settings out. Returns `true` when modules or settings changed. |
+| `applyWithout(moduleIds, { confirm = true, saveAs })` | Switches off the given modules and the active modules that need them, everything else stays as it is. The given modules are switched off even when they are pinned. `saveAs` names a world loadout of the current modules, saved after the confirmation and right before the switch, so applying it switches back (a loadout with that name is replaced). It asks first unless `confirm` is `false`. Returns `true` when modules changed. Sephral’s Performance Doctor uses it to test the world without the modules that cost time. |
 | `saveCurrent(name, { scope, description, tags, settings })` | Saves the active modules. `scope` is `"world"` (default) or `"global"` for an installation loadout. `settings` is `"visible"` or `"all"` to take the settings along. A loadout with the same name in that scope is replaced. Returns the saved loadout. |
 | `compare(idOrName)` | Returns `{ toEnable, toDisable, missing, settings }` as lists of module ids and setting keys. |
 | `getProfiles()` | Returns all saved loadouts. |
@@ -182,7 +187,7 @@ The module API is available at `game.modules.get("sephrals-module-loadouts").api
 | `runSelfTest({ report = true })` | Runs the self test. Returns `{ problems, checks }`. `report: false` leaves out the chat message. |
 | `saveDebugFile()` | Saves the debug file of Sephral’s modules (GM). See [Debug file](#debug-file). |
 
-`apply`, `saveCurrent` and the bug hunt need the permission to manage modules, just like the manager. Missing or incompatible required dependencies still stop an apply.
+`apply`, `applyWithout`, `saveCurrent` and the bug hunt need the permission to manage modules, just like the manager. Missing or incompatible required dependencies still stop an apply.
 
 Hotbar macro example:
 

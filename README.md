@@ -32,7 +32,7 @@
 
 Search for **Module Loadouts** in Foundry's module browser or open the [package page](https://foundryvtt.com/packages/sephrals-module-loadouts).
 
-Foundry VTT v13 and v14 · any game system · English and German
+Foundry VTT 13 and 14 · any game system · English and German
 
 ## Learn more
 

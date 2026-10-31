@@ -160,14 +160,17 @@ test("registers settings, menu, keybinding, and ready API", async () => {
     de: "Deutsch",
     en: "English"
   });
-  assert.equal(env.state.registerMenuCalls.length, 3);
-  assert.equal(env.state.registerMenuCalls[0].data.type, __test__.SMLSettingsMenu);
-  assert.equal(env.state.registerMenuCalls[1].key, "selfTest");
-  assert.equal(env.state.registerMenuCalls[1].data.type, __test__.SMLSelfTestMenu);
-  assert.equal(env.state.registerMenuCalls[1].data.restricted, true);
-  // The shared debug file: the button and the part of Module Loadouts
-  assert.equal(env.state.registerMenuCalls[2].key, "debugFile");
+  assert.equal(env.state.registerMenuCalls.length, 4);
+  // The window Sephral's Modules is the first entry of the settings tab
+  assert.equal(env.state.registerMenuCalls[0].key, "sephralsModules");
+  assert.equal(env.state.registerMenuCalls[0].data.restricted, true);
+  assert.equal(env.state.registerMenuCalls[1].data.type, __test__.SMLSettingsMenu);
+  assert.equal(env.state.registerMenuCalls[2].key, "selfTest");
+  assert.equal(env.state.registerMenuCalls[2].data.type, __test__.SMLSelfTestMenu);
   assert.equal(env.state.registerMenuCalls[2].data.restricted, true);
+  // Then the shared debug file: the button and the part of Module Loadouts
+  assert.equal(env.state.registerMenuCalls[3].key, "debugFile");
+  assert.equal(env.state.registerMenuCalls[3].data.restricted, true);
   assert.equal(globalThis.sephralsDebugFiles.providers.has(__test__.MODULE_ID), true);
   assert.equal(env.state.keybindingCalls.length, 1);
   assert.equal(env.state.keybindingCalls[0].data.restricted, true);
@@ -177,7 +180,7 @@ test("registers settings, menu, keybinding, and ready API", async () => {
 
   await env.hooks.trigger("ready");
   const api = env.game.modules.get(__test__.MODULE_ID).api;
-  assert.deepEqual(Object.keys(api).sort(), ["apply", "bugHunt", "compare", "getPinned", "getProfiles", "openManager", "runSelfTest", "saveCurrent", "saveDebugFile", "setPinned"]);
+  assert.deepEqual(Object.keys(api).sort(), ["apply", "applyWithout", "bugHunt", "compare", "getPinned", "getProfiles", "openManager", "runSelfTest", "saveCurrent", "saveDebugFile", "setPinned"]);
   assert.equal(Object.values(api).every((entry) => typeof entry === "function"), true);
 
   const manager = api.openManager();

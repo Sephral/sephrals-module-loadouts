@@ -9,7 +9,8 @@
   },
   "authors": [
     {
-      "name": "Sephral"
+      "name": "Sephral",
+      "url": "https://github.com/Sephral"
     }
   ],
   "url": "https://github.com/Sephral/sephrals-module-loadouts.git",
@@ -19,7 +20,6 @@
   "styles": [
     "styles/sml.css"
   ],
-  "persistentStorage": true,
   "languages": [
     {
       "lang": "en",
@@ -31,5 +31,6 @@
       "name": "Deutsch",
       "path": "lang/de.json"
     }
-  ]
+  ],
+  "persistentStorage": true
 }
