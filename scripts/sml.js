@@ -9,6 +9,7 @@ import * as apply from "./apply.mjs";
 import * as bugHunt from "./bug-hunt.mjs";
 import * as manager from "./manager.mjs";
 import * as selfTest from "./selftest.mjs";
+import * as sampleWindows from "./sample-windows.js";
 import { registerDebug } from "./debug.mjs";
 import { saveDebugFile } from "./debug-file.mjs";
 import { registerHubModule } from "./hub.mjs";
@@ -243,6 +244,8 @@ function createApi() {
     setPinned: store.setPinnedModuleIds,
     bugHunt: (options = {}) => bugHunt.readHuntState() ? bugHunt.openBugHuntPanel() : bugHunt.openBugHuntStart(options),
     runSelfTest: selfTest.runSelfTest,
+    // The windows and questions filled with made-up loadouts and modules, nothing saved (translators, testing; see samples.mjs)
+    samples: () => sampleWindows.sampleWindows(),
     // One file for all of Sephral's modules, without a message id about their latest picture
     saveDebugFile: (messageId) => saveDebugFile(messageId ?? null, { moduleId: MODULE_ID })
   };
@@ -257,6 +260,7 @@ export const __test__ = {
   ...bugHunt,
   ...manager,
   ...selfTest,
+  ...sampleWindows,
   refreshLocalizedUi,
   createApi
 };

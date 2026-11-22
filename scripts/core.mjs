@@ -199,8 +199,11 @@ export function equalModuleIdLists(left, right) {
   return left.every((value, index) => value === right[index]);
 }
 
+// Made-up modules of the sample windows (id -> {title, version}). Real code never asks for these ids.
+export const sampleModules = new Map();
+
 export function moduleTitle(moduleId) {
-  return game.modules.get(moduleId)?.title ?? moduleId;
+  return sampleModules.get(moduleId)?.title ?? game.modules.get(moduleId)?.title ?? moduleId;
 }
 
 export function compareModuleIdsByTitle(left, right) {

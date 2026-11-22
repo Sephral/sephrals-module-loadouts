@@ -180,7 +180,7 @@ test("registers settings, menu, keybinding, and ready API", async () => {
 
   await env.hooks.trigger("ready");
   const api = env.game.modules.get(__test__.MODULE_ID).api;
-  assert.deepEqual(Object.keys(api).sort(), ["apply", "applyWithout", "bugHunt", "compare", "getPinned", "getProfiles", "openManager", "runSelfTest", "saveCurrent", "saveDebugFile", "setPinned"]);
+  assert.deepEqual(Object.keys(api).sort(), ["apply", "applyWithout", "bugHunt", "compare", "getPinned", "getProfiles", "openManager", "runSelfTest", "samples", "saveCurrent", "saveDebugFile", "setPinned"]);
   assert.equal(Object.values(api).every((entry) => typeof entry === "function"), true);
 
   const manager = api.openManager();

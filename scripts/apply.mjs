@@ -267,8 +267,8 @@ function renderSettingsSection(changes) {
 
 // Asks before every switch and lists what really happens: modules, dependencies, settings and warnings.
 // "notes" are extra HTML parts below the snapshot line, already escaped.
-export async function confirmProfileChanges(profile, preflight, { enableIds, disableIds, settingsChanges = [], pinnedKept = [], notes = [] }) {
-  const changedVersions = findChangedVersions(profile).map((entry) => `${entry.title}: ${entry.from} → ${entry.to}`);
+export function renderConfirmContent(profile, preflight, { enableIds, disableIds, settingsChanges = [], pinnedKept = [], notes = [], changedVersions = findChangedVersions(profile) }) {
+  const changed = changedVersions.map((entry) => `${entry.title}: ${entry.from} → ${entry.to}`);
   const parts = [
     `<p>${localize("SML.Dialog.ConfirmApply.Snapshot")}</p>`,
     ...notes,
@@ -277,14 +277,17 @@ export async function confirmProfileChanges(profile, preflight, { enableIds, dis
     renderPreflightSection(localize("SML.Dialog.ConfirmApply.Pinned"), pinnedKept.map(moduleTitle)),
     renderSettingsSection(settingsChanges),
     ...renderPreflightSections(preflight, profile),
-    renderPreflightSection(localize("SML.Dialog.ConfirmApply.ChangedVersions"), changedVersions)
+    renderPreflightSection(localize("SML.Dialog.ConfirmApply.ChangedVersions"), changed)
   ];
+  return `<div class="sml-dialog-body">${parts.filter(Boolean).join("")}</div>`;
+}
 
+export async function confirmProfileChanges(profile, preflight, options) {
   const result = await foundry.applications.api.DialogV2.wait({
     window: { title: localize("SML.Dialog.Preflight.Title", { name: profile.name }), icon: "fa-solid fa-layer-group" },
     classes: ["sml-dialog"],
     position: { width: 520 },
-    content: `<div class="sml-dialog-body">${parts.filter(Boolean).join("")}</div>`,
+    content: renderConfirmContent(profile, preflight, options),
     buttons: [
       {
         action: "apply",

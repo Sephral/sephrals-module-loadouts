@@ -185,6 +185,7 @@ The module API is available at `game.modules.get("sephrals-module-loadouts").api
 | `bugHunt({ pattern })` | Opens the bug hunt, with an error text filled in, or the window of the running hunt. |
 | `openManager()` | Opens the manager window. |
 | `runSelfTest({ report = true })` | Runs the self test. Returns `{ problems, checks }`. `report: false` leaves out the chat message. |
+| `samples()` | Returns the sample windows: the manager with made-up loadouts, the questions and the bug hunt steps, filled with made-up modules. Nothing is saved or switched. The translator of Sephral’s modules uses them to show every text. |
 | `saveDebugFile()` | Saves the debug file of Sephral’s modules (GM). See [Debug file](#debug-file). |
 
 `apply`, `applyWithout`, `saveCurrent` and the bug hunt need the permission to manage modules, just like the manager. Missing or incompatible required dependencies still stop an apply.

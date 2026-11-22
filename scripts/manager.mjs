@@ -132,15 +132,16 @@ export function injectModuleManagementLauncher(app, html) {
 // Card data
 // ---------------------------------------------------------------------------------------------
 
-export function presentProfile(profile, { pinnedIds = getPinnedModuleIds() } = {}) {
-  const comparison = buildComparison(profile, { pinnedIds });
-  const preflight = collectProfilePreflight(profile, { pinnedIds });
+// "parts" replaces what is read from the installed modules (the sample windows give made-up ones).
+export function presentProfile(profile, { pinnedIds = getPinnedModuleIds(), parts = {} } = {}) {
+  const comparison = parts.comparison ?? buildComparison(profile, { pinnedIds });
+  const preflight = parts.preflight ?? collectProfilePreflight(profile, { pinnedIds });
   const updatedAtLabel = formatDate(profile.updatedAt);
   const missing = describeMissingModules(profile, comparison.missing);
-  const changedVersions = findChangedVersions(profile);
-  const unusedLibraries = findUnusedLibraries(profile, preflight.desiredIds);
+  const changedVersions = parts.changedVersions ?? findChangedVersions(profile);
+  const unusedLibraries = parts.unusedLibraries ?? findUnusedLibraries(profile, preflight.desiredIds);
   const settingsSummary = summarizeLoadoutSettings(profile.settings);
-  const settingsChanges = collectSettingsChanges(profile.settings).map(describeSettingsChange);
+  const settingsChanges = (parts.settingsChanges ?? collectSettingsChanges(profile.settings)).map(describeSettingsChange);
   const warningCount = preflight.warningDetails.length + preflight.compatibilityWarnings.length;
 
   return {
@@ -428,10 +429,10 @@ export async function chooseImport(plan) {
   }).then((result) => Array.isArray(result) ? result : null);
 }
 
-export function renderPinnedForm({ pinnedIds = getPinnedModuleIds(), activeIds = getCurrentActiveModuleIds() } = {}) {
+export function renderPinnedForm({ pinnedIds = getPinnedModuleIds(), activeIds = getCurrentActiveModuleIds(), installedIds = Array.from(game.modules.keys()) } = {}) {
   const pinned = new Set(pinnedIds);
   const active = new Set(activeIds);
-  const ids = Array.from(game.modules.keys()).filter((id) => id !== MODULE_ID).sort(compareModuleIdsByTitle);
+  const ids = installedIds.filter((id) => id !== MODULE_ID).sort(compareModuleIdsByTitle);
   const rows = ids.map((id) => [
     `<label class="sml-checkbox sml-pinned-row" data-search="${escapeHtml(`${moduleTitle(id)} ${id}`.toLowerCase())}">`,
     `<input type="checkbox" name="pinned" value="${escapeHtml(id)}"${pinned.has(id) ? " checked" : ""}>`,
@@ -448,7 +449,7 @@ export function renderPinnedForm({ pinnedIds = getPinnedModuleIds(), activeIds =
   ].join("");
 }
 
-function filterPinnedRows(root, needle) {
+export function filterPinnedRows(root, needle) {
   const value = String(needle ?? "").trim().toLowerCase();
   for (const row of root.querySelectorAll(".sml-pinned-row")) {
     row.hidden = Boolean(value) && !String(row.dataset.search ?? "").includes(value);

@@ -15,7 +15,8 @@ import {
   localize,
   localizeHtml,
   moduleTitle,
-  refreshManager
+  refreshManager,
+  sampleModules
 } from "./core.mjs";
 import { buildModuleConfiguration, withRequiredModules, writeModuleConfiguration } from "./apply.mjs";
 import { getPinnedModuleIds, saveAutoSnapshot } from "./store.mjs";
@@ -410,12 +411,13 @@ function huntModuleList(ids) {
   return Array.from(ids).sort(compareModuleIdsByTitle).map((id) => moduleTitle(id));
 }
 
-export function presentHuntState(state, { errors = startupCapture.entries } = {}) {
+// "closureOf" and the sample modules let the sample windows show a hunt over made-up modules.
+export function presentHuntState(state, { errors = startupCapture.entries, closureOf = closure } = {}) {
   const matches = state.mode === HUNT_MODES.ERROR ? findMatchingErrors(state.pattern, errors) : [];
   const done = state.phase === HUNT_PHASES.DONE;
   const culpritTitle = state.culpritId ? moduleTitle(state.culpritId) : "";
-  const culprit = state.culpritId ? game.modules.get(state.culpritId) : null;
-  const dependents = state.culpritId ? findDependents(state.culpritId, state.originalIds, closure).map(moduleTitle) : [];
+  const culprit = state.culpritId ? (sampleModules.get(state.culpritId) ?? game.modules.get(state.culpritId)) : null;
+  const dependents = state.culpritId ? findDependents(state.culpritId, state.originalIds, closureOf).map(moduleTitle) : [];
   let stepText = "";
   if (state.phase === HUNT_PHASES.BASELINE) stepText = localize("SML.Hunt.Step.Baseline", { count: state.keepIds.length });
   else if (state.phase === HUNT_PHASES.SEARCH) stepText = localize("SML.Hunt.Step.Search", { tested: state.testedIds.length, suspects: state.suspects.length, active: state.activeIds.length });
